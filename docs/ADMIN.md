@@ -4,7 +4,7 @@
 
 管理服务可独立运行，使用 Entra 个人登录，精确允许一个 tenant/oid。它提供 DeepSeek API key
 保存、更换、移除，OpenAI subscription 设备码登录、取消和移除，以及脱敏认证状态和固定 Pi 模型目录。
-首期无应用工具。统一入口已接入业务会话/任务 API；当前云端管理部署事实与后续统一服务发布应分别验收。
+首期无应用工具。统一入口已接入业务会话/任务 API 并完成云发布；部署和身份验收与真实任务执行验收分别记录，见下文[统一服务云发布](#统一服务云发布)。
 
 管理入口已部署：[https://mochiadmin.whitemeadow-6e32159b.eastus.azurecontainerapps.io](https://mochiadmin.whitemeadow-6e32159b.eastus.azurecontainerapps.io)。
 2026-09-06 用户确认已通过真实管理页完成 Entra 登录、DeepSeek API key 注册和 OpenAI 登录流，正常途径成功。
@@ -190,10 +190,29 @@ Azure Backup 恢复点恢复，重新打开也不等同于跨 ACA revision 发�
 浏览器 fixture 覆盖未配置时提示重新登录，以及模拟刷新成功与按钮禁用/恢复；fixture 不访问真实 provider。
 
 
-2026-09-07 主动验证操作已部署到 revision `mochi-agent--0000002`，镜像 digest 为
+2026-09-07 主动验证操作首次部署到 revision `mochi-agent--0000002`，当时镜像 digest 为
 `sha256:8a53e93fda699d8607bf7d700f2919a38b592ee181db833541ca97964f236abc`。
 发布经过停机、七天保留备份及旧拥有者退出；管理页已提供按钮，匿名 POST 返回 401。
 2026-09-07 本人点击后确认“订阅认证已刷新并保存；未调用模型。”
 维护审计核对 auth.json 摘要已变化，两个 provider 类型保持正确，OAuth 无重新登录标记。
 
 真实刷新后已再次 stop/start：旧副本退出并释放锁，新副本取得拥有权；auth.json 摘要与刷新后完全一致，两个 provider 配置保留，管理页恢复 200。重启验证没有再次刷新 token 或调用模型。
+
+## 统一服务云发布
+
+2026-09-07 统一业务/管理服务发布到 revision `mochi-agent--0000003`，构建对应代码 checkpoint
+`58843632f670508feeb005a249169c91681c7778`，镜像 digest 为
+`sha256:deff25d3ded914d1704efb3535216aca5431a839c101e3b76e0defeef751fd01`。
+
+发布采用维护窗口：停止旧实例，确认所有活动 revision 零副本、认证与数据共享的旧 owner 均退出；
+对两个共享分别提交七天保留备份并核验本轮 job 完成及恢复点；应用部署计划后启动新实例。
+发布后审计确认仅一个活动副本，新实例持有两个共享的 owner，auth.json 摘要与维护前一致，
+两个 provider 类型与无需重新登录状态保留。备份提交的七天保留请求已记录；恢复点列表未暴露到期字段时，
+不把请求回执等同于独立核验实际到期时间。
+
+真实 Write 容器使用自身 Managed Identity 调用 `GET /v1/models` 返回 200 和 11 个模型选项，
+身份与 `Mochi.Invoke` 角色匹配；同一 token 伪造 app header 返回 403。本人管理页登录正常。
+本轮跨服务配置及匿名 HTTP 验收共 81 项通过；这些检查不调用模型，也不创建会话或任务。
+
+本轮未验收真实模型调用、Queue 派发/消费任务、重复投递、执行中重启或缩容，以及业务状态故障恢复。
+readiness、模型目录响应、备份恢复点存在和 owner 交接成功，均不单独证明这些执行路径已通过。

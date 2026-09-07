@@ -3,7 +3,7 @@
 ## 当前状态
 
 已实现 Node.js HTTP 服务、配置校验、Entra JWT 认证及 Pi 无工具会话/provider 适配模块。
-已补充 `FileCredentials` 与独立 Entra 管理入口。管理服务已部署并经用户验证真实账号正常流程；已实现统一业务/管理入口、Files 会话/任务与 Queue 消费，Agent API 已本地接通；尚未发布统一云版本。
+已补充 `FileCredentials` 与独立 Entra 管理入口。统一业务/管理服务已云发布，Files 认证与数据目录由同一活动实例分别持有。真实 Write Managed Identity 已通过业务模型目录认证，本人管理登录正常；Files 会话/任务与 Queue 执行的本地验证不替代真实任务及故障恢复验收。
 
 ## 已实现服务基础
 
@@ -110,7 +110,7 @@ Mochi 从 `MOCHI_AUTH_MODE=entra`、`MOCHI_ENTRA_ISSUER`、`MOCHI_ENTRA_AUDIENCE
 
 ## 技术方向与官方入口
 
-运行时以 Pi SDK 为核心，已固定 TypeScript 与 Pi 0.85.1；管理部署与凭据持久化已接入，业务执行已本地接通首个 app，统一云部署仍待 MOC-004。
+运行时以 Pi SDK 为核心，已固定 TypeScript 与 Pi 0.85.1；统一云服务与首个 app 的 Managed Identity 接入已验证。真实业务执行与模型联调仍待 MOC-004；当前发布证据见 [管理服务](ADMIN.md#统一服务云发布)。
 
 - [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)
 - [Pi providers](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md)

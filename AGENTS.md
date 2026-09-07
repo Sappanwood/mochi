@@ -6,7 +6,7 @@
 
 面向个人多个 Web app 的云端 Pi Agent 执行核心，部署目标为 Azure Container Apps。
 
-当前已建立 HTTP/Entra/Pi 基础、持久凭据与独立个人管理页面；管理服务已部署，真实账号正常流程经用户确认；统一业务/管理入口与持久任务已实现并完成本地接缝验证，云联调留 MOC-004。
+当前已建立 HTTP/Entra/Pi 基础、持久凭据与独立个人管理页面；统一业务/管理服务已发布到 Azure Container Apps，真实 Write Managed Identity 读取模型目录与本人管理登录已验证。持久任务已完成本地接缝验证；真实模型、Queue 任务执行及业务故障恢复仍待 MOC-004 验收。
 实现前区分已接受方向、待决策事项和已实现事实。
 
 ## ProjectOps 路由
