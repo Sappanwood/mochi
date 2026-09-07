@@ -61,12 +61,20 @@ def http_status(url):
 
 
 def smoke():
-    paths = ['/'] if APP == 'mochi' else ['/health/live', '/health/ready', '/']
-    for path in paths:
-        if http_status(ORIGIN + path) != 200:
-            raise ValueError('Public readiness/page check failed: ' + path)
-    if http_status(ORIGIN + ANON_PATH) != 401:
-        raise ValueError('Anonymous business access must return 401')
+    checks = [('/', 200), (ANON_PATH, 401)]
+    for path, expected in checks:
+        for attempt in range(6):
+            try:
+                status = http_status(ORIGIN + path)
+            except (TimeoutError, URLError):
+                status = None
+            if status == expected:
+                break
+            if status not in (None, 502, 503, 504):
+                raise ValueError('Unexpected public response: ' + path + f' ({status}, expected {expected})')
+            if attempt == 5:
+                raise ValueError('Public check timed out: ' + path)
+            time.sleep(10)
 
 
 def release(manifest):

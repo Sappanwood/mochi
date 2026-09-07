@@ -105,7 +105,7 @@ artifact 的 `image.json` 保存 commit、build run ID 和不可变 digest；镜
 
 两个发布入口共用 Repo 内 `production-deploy` concurrency group，不取消正在运行的发布；GitHub 只保留一个 pending job，
 更多排队请求可能替换此前 pending，且不保证排队次序。每次发布后核对 Summary 的 commit/digest/revision。
-Mochi 由本人协调停止接单、在途任务、备份及旧 owner 释放，并先停止 ACA。发布入口核对 Stopped 后更新 image 并 start，不自动排空、停止或备份。readiness 由 ACA 探针和 latestReadyRevisionName 验证，公网检查管理页面与匿名 `/admin/providers` 返回 401；GitHub runner 不访问内部业务域名。
+Mochi 由本人协调停止接单、在途任务、备份及旧 owner 释放，并先停止 ACA。发布入口核对 Stopped 后更新 image 并 start，不自动排空、停止或备份。readiness 由 ACA 探针和 latestReadyRevisionName 验证，公网检查管理页面与匿名 `/admin/providers` 返回 401；GitHub runner 不访问内部业务域名。公网检查对超时、连接错误及 502/503/504 最多尝试六次，间隔十秒；其他非预期状态立即失败。
 
 CCP/Terraform 管理 ACA、身份权限、环境变量、挂载及缩放等非镜像配置；本 Repo 的 workflow 只传入目标容器和 image。
 Terraform 精确忽略 `template[0].container[0].image`，避免基础设施更新回退已发布版本；基础设施操作期间由本人协调暂停应用发布。

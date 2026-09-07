@@ -111,6 +111,8 @@ OpenAI 使用 Pi 的 `device_code` headless 流程，不启动 localhost OAuth c
 异常退出留下 `.owner/` 时，必须先确认旧容器及可能的旧 revision 已彻底停止、不会再次写入，
 再人工移除该 exact 认证目录的 `.owner/id` 和空 `.owner/`，随后启动新拥有者。
 不得对可能仍活动的拥有者抢锁，不得递归删除认证目录，不得为回滚代码恢复旧 OAuth token。
+若 `.owner/` 已存在但其中没有 `id`，启动仍会因排他目录存在而拒绝。确认 ACA Stopped 且所有 revision 零副本后，
+可仅移除该空目录；清理前后核对 auth.json 元数据未变。不要根据目录为空就跳过停机确认。
 若异常终止前可能有未完成刷新，或恢复了历史备份，不能凭文件可读认定 refresh token 安全可重用；
 恢复前应将 OAuth 凭据标为需要重新登录或移除该 provider，再由本人重新授权。不能恢复旧备份来清除失效标记。
 实际部署需按 CCP 维护窗口停止旧实例后再启动新实例，不能等待新实例 ready 才交出旧所有权。

@@ -52,6 +52,23 @@ class DeployTests(unittest.TestCase):
         with patch.object(deploy, 'http_status', side_effect=lambda url: 401 if url.endswith(deploy.ANON_PATH) else 200):
             deploy.smoke()
 
+    def test_smoke_retries_cold_start_timeout_and_gateway_errors(self):
+        with patch.object(deploy, 'http_status', side_effect=[TimeoutError('cold'), 503, 200, 401]), patch.object(deploy.time, 'sleep') as sleep:
+            deploy.smoke()
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_smoke_stops_after_bounded_transient_failures(self):
+        with patch.object(deploy, 'http_status', side_effect=TimeoutError('cold')) as request, patch.object(deploy.time, 'sleep'):
+            with self.assertRaisesRegex(ValueError, 'Public check timed out'):
+                deploy.smoke()
+        self.assertEqual(request.call_count, 6)
+
+    def test_smoke_never_retries_anonymous_access_success(self):
+        with patch.object(deploy, 'http_status', return_value=200), patch.object(deploy.time, 'sleep') as sleep:
+            with self.assertRaises(ValueError):
+                deploy.smoke()
+        sleep.assert_not_called()
+
     def test_running_mochi_is_not_updated(self):
         if deploy.APP != 'mochi':
             return
