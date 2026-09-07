@@ -9,7 +9,7 @@
 已实现 auth.json 持久凭据、排他所有权，以及独立的 Entra 个人认证管理页面；已部署独立 HTTPS 管理入口，用户已验证 DeepSeek key 保存和 OpenAI 登录。
 管理地址：[Mochi 认证管理](https://mochiadmin.whitemeadow-6e32159b.eastus.azurecontainerapps.io)。
 已实现统一管理/业务入口、持久会话/任务、Azure Queue 派发与事件恢复；本地真实 HTTP/Pi SDK 接缝已接通。
-统一业务/管理服务已云发布，真实 Write Managed Identity 读取模型目录返回 200，伪造 app 绑定返回 403，本人管理登录正常。停机交接后认证与数据共享均由新实例持有，凭据内容保持不变。真实模型调用、Queue 任务执行及业务故障恢复仍待 MOC-004 验收；发布与验收边界见 [管理服务](docs/ADMIN.md#统一服务云发布)。
+统一业务/管理服务已云发布，真实 Write Managed Identity 读取模型目录返回 200，伪造 app 绑定返回 403，本人管理登录正常。停机交接后认证与数据共享均由新实例持有，凭据内容保持不变。两个独立会话已通过真实 DeepSeek V4 Flash 调用与 Queue 正常任务链路，其中一份草稿采纳后刷新一致，另一任务排队时页面断开后恢复成功。执行中中断、进程恢复、跨应用身份隔离及业务故障恢复仍待 MOC-004 验收；发布与验收边界见 [管理服务](docs/ADMIN.md#统一服务云发布)。
 
 ## 项目入口
 

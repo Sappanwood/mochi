@@ -123,7 +123,7 @@ OpenAI 使用 Pi 的 `device_code` headless 流程，不启动 localhost OAuth c
 需要允许子进程与 loopback 监听的运行环境；受限 sandbox 曾返回空子进程输出，不能按空输出推定执行通过。
 
 真实 Azure Files SMB 的基础文件操作、模拟刷新竞争、发布前存储故障、跨 revision 停机交接与隔离备份恢复已验证。
-本人已完成真实 Entra/OpenAI 登录；真实 OAuth 刷新已成功；模型调用和网络断连/发布后 fsync 故障尚未实测。
+本人已完成真实 Entra/OpenAI 登录；真实 OAuth 刷新已成功。DeepSeek V4 Flash 真实调用见下文；subscription 模型调用、执行中断及发布后 fsync 故障尚未实测。
 
 实际挂载探针为 `test/manual/storage-probe.mjs`，先构建，再在显式 `MOCHI_AUTH_DIR` 下运行。
 它仅创建随机 `.mochi-probe-*` 子目录，使用无敏感信息的测试值验证文件权限、fsync、rename、排他、重新打开和删除，
@@ -214,5 +214,19 @@ Azure Backup 恢复点恢复，重新打开也不等同于跨 ACA revision 发�
 身份与 `Mochi.Invoke` 角色匹配；同一 token 伪造 app header 返回 403。本人管理页登录正常。
 本轮跨服务配置及匿名 HTTP 验收共 81 项通过；这些检查不调用模型，也不创建会话或任务。
 
-本轮未验收真实模型调用、Queue 派发/消费任务、重复投递、执行中重启或缩容，以及业务状态故障恢复。
+该发布检查阶段未调用模型或执行 Queue 任务；后续正常任务链路验收见下一节。重复投递、执行中重启或缩容，以及业务状态故障恢复仍未验收。
 readiness、模型目录响应、备份恢复点存在和 owner 交接成功，均不单独证明这些执行路径已通过。
+
+## 真实写作调用验收
+
+2026-09-07 在明确授权的两个任务范围内，真实 Write Managed Identity 经 Mochi、Azure Queue 与 Pi 调用
+`deepseek/deepseek-v4-flash` 成功。使用新建人工测试故事及两段人工短句，不发送旧小说；两个任务各有独立
+conversation、session 和 run，每次配置输出上限 4096 tokens，不自动重试。
+
+A 的完整草稿已采纳为测试章节 v1，刷新后内容一致。B 在观测状态为 `queued` 时将页面导航到
+`about:blank`，重开页面后恢复原 run 的成功结果与事件，未再次提交。两次接口返回的 usage.total_tokens
+分别为 1309 和 706，合计 2015；这是接口计量口径，不是价格或账单核对，也不能只按可见短句长度推算用量。
+
+该证据覆盖同一应用身份下两个独立会话的正常执行、草稿采纳和排队阶段页面断线恢复。未覆盖
+`running` 时断线或任务中断、进程崩溃恢复、两个应用身份隔离、Queue 重复投递/租约故障或执行中缩容。
+OpenAI subscription 登录与刷新已验证，但本次没有调用 subscription 模型。

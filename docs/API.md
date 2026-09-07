@@ -6,7 +6,7 @@
 服务器完整验证原始 Entra app-only JWT，并由 `azp/oid` 映射唯一 `app_id`；不接受调用者指定 app 身份。
 业务 token 不能进入个人管理 API；公开管理 shell 与管理认证契约见 [ADMIN.md](ADMIN.md)。
 首期只有 DeepSeek API key 与 OpenAI subscription (`openai-codex`)，无工具、扩展、本地文件发现或自动重试。
-本文描述本地实现；真实 Queue/SMB、云身份、缩容及真实模型行为由 MOC-004 与 CCP 联调验收。
+本文描述已实现的接口契约。真实 Write Managed Identity 经 Queue/Pi 调用 DeepSeek V4 Flash 的两个独立会话任务已成功；其中一个任务在 queued 时页面断开，重开后通过原 run 恢复成功而未重发。该证据不覆盖 running 中断、进程恢复、两个 app_id 隔离或缩容故障；完整验收边界见 [管理服务](ADMIN.md#真实写作调用验收)。
 
 请求/响应 JSON 使用 snake_case，写请求必须为 `application/json`，拒绝未知字段；请求体上限 128 KiB。
 响应 `Cache-Control: no-store`，错误为 `{ "error": "code" }`，日志只记录请求 ID、状态与耗时，不记录内容、token 或 provider 原始错误。
