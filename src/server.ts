@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { createServer as httpServer } from 'node:http';
+import type { RequestListener } from 'node:http';
+import type { Tasks } from './tasks.ts';
+import { agentApi } from './api.ts';
+import { TaskError } from './task-types.ts';
 import { AccessError } from './auth.ts';
 
 interface ServerOptions {
+  tasks?: Tasks;
+  adminHandler?: RequestListener;
   authenticate: (authorization: string | undefined) => Promise<{ appId: string }>;
   isReady: () => boolean;
   log: (event: { event: 'request'; request_id: string; status: number; duration_ms: number }) => void;
@@ -26,17 +32,28 @@ export function createServer(options: ServerOptions) {
     }));
     try {
       const url = new URL(req.url ?? '/', 'http://mochi.internal');
+      const rawPath = (req.url ?? '/').split('?')[0]!;
+      if (rawPath !== url.pathname || /[%\\]/.test(rawPath) || rawPath.includes('//')) throw new TaskError(400, 'invalid_path');
+      if (options.adminHandler && (url.pathname === '/' || url.pathname === '/admin.js' || url.pathname === '/admin.css'
+        || url.pathname === '/admin' || url.pathname.startsWith('/admin/'))) {
+        options.adminHandler(req, res); return;
+      }
       if (req.method === 'GET' && url.pathname === '/health/live') return respond(200, { status: 'ok' });
       if (req.method === 'GET' && url.pathname === '/health/ready') {
         return options.isReady() ? respond(200, { status: 'ok' }) : respond(503, { status: 'not_ready' });
       }
       if (req.headersDistinct.authorization?.length !== 1) throw new AccessError(401);
-      await options.authenticate(req.headers.authorization);
+      const identity = await options.authenticate(req.headers.authorization);
       if ('x-app-id' in req.headers || url.searchParams.has('app_id')
         || url.pathname === '/admin' || url.pathname.startsWith('/admin/')) throw new AccessError(403);
+      if (options.tasks) {
+        if (!options.isReady()) return respond(503, { error: 'not_ready' });
+        return await agentApi(options.tasks, identity.appId, req, res, respond);
+      }
       respond(404, { error: 'not_found' });
     } catch (error) {
-      if (error instanceof AccessError) respond(error.status, { error: error.message });
+      if (res.headersSent) { res.destroy(); return; }
+      if (error instanceof AccessError || error instanceof TaskError) respond(error.status, { error: error.message });
       else respond(500, { error: 'internal_error' });
     }
   });

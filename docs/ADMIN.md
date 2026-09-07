@@ -4,7 +4,7 @@
 
 管理服务可独立运行，使用 Entra 个人登录，精确允许一个 tenant/oid。它提供 DeepSeek API key
 保存、更换、移除，OpenAI subscription 设备码登录、取消和移除，以及脱敏认证状态和固定 Pi 模型目录。
-首期无应用工具。业务会话/任务 API 与首个 app 联调留在后续范围。
+首期无应用工具。统一入口已接入业务会话/任务 API；当前云端管理部署事实与后续统一服务发布应分别验收。
 
 管理入口已部署：[https://mochiadmin.whitemeadow-6e32159b.eastus.azurecontainerapps.io](https://mochiadmin.whitemeadow-6e32159b.eastus.azurecontainerapps.io)。
 2026-09-06 用户确认已通过真实管理页完成 Entra 登录、DeepSeek API key 注册和 OpenAI 登录流，正常途径成功。
@@ -18,9 +18,9 @@ npm run check
 npm run start:admin
 ```
 
-独立入口为 `dist/admin-main.js`。Dockerfile 默认仍启动业务基础入口；管理模式使用同一镜像的
+独立入口为 `dist/admin-main.js`。Dockerfile 默认启动统一业务/管理入口；独立维护模式使用同一镜像的
 command override `node dist/admin-main.js`。不得让两个进程同时拥有同一认证目录。
-后续统一业务与管理入口时，应在同一进程共享拥有者，不启动第二个凭据写入者。
+`dist/main.js` 现在在同一进程共享 FileCredentials、Pi 与 AdminControl；保留该独立入口用于维护兼容，不启动第二个凭据写入者。
 
 | 环境变量 | 要求 |
 |---|---|
@@ -51,7 +51,7 @@ ACA Easy Auth 同样限定管理 API audience、SPA client ID 和本人 oid；�
 应用仍独立校验 Bearer token，不信任代理身份 header。平台认证配置完成后才创建公网路由。
 
 CCP 的 `--admin-oid` 选择独立管理模式，不需要伪造业务调用方，使用同一个 `mochi-agent` Container App。
-该模式仅启用 HTTP 缩放，不消费 Queue；初期与业务模式互斥。首个 app 接入时需合并同进程路由和认证策略，
+该模式仅启用 HTTP 缩放，不消费 Queue；初期与业务模式互斥。统一入口已合并同进程路由和认证策略，
 不能通过切换启动命令丢弃管理注册或增加第二个凭据拥有者。已存在的注册带删除保护。
 SMB 挂载固定 `uid=1000,gid=1000,dir_mode=0700,file_mode=0600`，与镜像的非 root `node` 用户一致。
 

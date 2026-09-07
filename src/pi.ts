@@ -91,6 +91,7 @@ export async function createPi(credentials: CredentialStore) {
     },
     models: () => providers.flatMap(provider => runtime.getModels(provider).map(model => ({
       provider, id: model.id, name: model.name, auth: provider === 'deepseek' ? 'api_key' : 'oauth',
+      context_window: model.contextWindow, max_output_tokens: model.maxTokens,
     }))),
     async status() {
       return Promise.all(providers.map(async provider => ({
@@ -111,7 +112,8 @@ export async function createPi(credentials: CredentialStore) {
 export type Pi = Awaited<ReturnType<typeof createPi>>;
 
 export async function openConversation(pi: Pi, input: {
-  cwd: string; agentDir: string; provider: string; model: string;
+  cwd: string; agentDir: string; provider: string; model: string; sessionId?: string; systemPrompt?: string; maxOutputTokens?: number;
+  history?: { role: 'user' | 'assistant'; content: string }[];
 }) {
   const model = await pi.requireModel(input.provider, input.model);
   const settingsManager = SettingsManager.inMemory({
@@ -120,18 +122,32 @@ export async function openConversation(pi: Pi, input: {
   const resourceLoader = new DefaultResourceLoader({
     cwd: input.cwd, agentDir: input.agentDir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    systemPrompt: 'You are Mochi, a conversational assistant. You have no tools or filesystem access.',
+    systemPrompt: input.systemPrompt ?? 'You are Mochi, a conversational assistant. You have no tools or filesystem access.',
     appendSystemPrompt: [],
   });
   await resourceLoader.reload();
+  const manager = SessionManager.inMemory(input.cwd);
+  for (const message of input.history ?? []) {
+    if (message.role === 'user') manager.appendMessage({ role: 'user', content: message.content, timestamp: Date.now() });
+    else manager.appendMessage({ role: 'assistant', content: [{ type: 'text', text: message.content }],
+      api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(), stopReason: 'stop',
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } });
+  }
   const { session } = await createAgentSession({
     cwd: input.cwd, agentDir: input.agentDir, modelRuntime: pi.runtime, model,
     tools: [], noTools: 'all', customTools: [], resourceLoader, settingsManager,
-    sessionManager: SessionManager.inMemory(input.cwd),
+    sessionManager: manager,
   });
   if (session.getActiveToolNames().length !== 0) {
     session.dispose();
     throw new Error('unexpected_tools');
+  }
+  if (input.maxOutputTokens !== undefined || input.systemPrompt !== undefined) {
+    const stream = session.agent.streamFunction;
+    session.agent.streamFunction = (model, context, options) => stream(model,
+      { ...context, systemPrompt: input.systemPrompt ?? context.systemPrompt },
+      { ...options, maxTokens: input.maxOutputTokens, sessionId: input.sessionId ?? options?.sessionId });
   }
   return session;
 }

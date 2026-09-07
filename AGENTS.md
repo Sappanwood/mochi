@@ -6,7 +6,7 @@
 
 面向个人多个 Web app 的云端 Pi Agent 执行核心，部署目标为 Azure Container Apps。
 
-当前已建立 HTTP/Entra/Pi 基础、持久凭据与独立个人管理页面；管理服务已部署，真实账号正常流程经用户确认；业务路由、持久任务与首个 app 联调尚未接通。
+当前已建立 HTTP/Entra/Pi 基础、持久凭据与独立个人管理页面；管理服务已部署，真实账号正常流程经用户确认；统一业务/管理入口与持久任务已实现并完成本地接缝验证，云联调留 MOC-004。
 实现前区分已接受方向、待决策事项和已实现事实。
 
 ## ProjectOps 路由
@@ -35,6 +35,7 @@ Backlog、Plan、execution、Report、ADR、Research 均由 ProjectOps 管理，
 | README.md | 了解项目状态和入口 | 状态、安装和运行命令变化 |
 | docs/PRODUCT_SPEC.md | 明确用户行为和范围 | 产品流程、数据和验收边界变化 |
 | docs/ARCHITECTURE.md | 设计组件、依赖和存储 | 技术选型、所有权和部署契约变化 |
+| docs/API.md | 业务接口、任务和事件开发 | API schema、幂等、状态、预算、恢复语义变化 |
 | docs/ADMIN.md | 管理服务开发、Entra 接入、认证恢复与发布交接 | 管理 API、会话、文件安全与操作流程变化 |
 | ProjectOps typed roots | 管理任务、决策和交付 | 通过对应 ProjectOps 契约维护 |
 

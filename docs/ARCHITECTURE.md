@@ -3,7 +3,7 @@
 ## 当前状态
 
 已实现 Node.js HTTP 服务、配置校验、Entra JWT 认证及 Pi 无工具会话/provider 适配模块。
-已补充 `FileCredentials` 与独立 Entra 管理入口。管理服务已部署并经用户验证真实账号正常流程；业务路由、持久会话/任务与 Queue 仍待接通，未发布 Agent API。
+已补充 `FileCredentials` 与独立 Entra 管理入口。管理服务已部署并经用户验证真实账号正常流程；已实现统一业务/管理入口、Files 会话/任务与 Queue 消费，Agent API 已本地接通；尚未发布统一云版本。
 
 ## 已实现服务基础
 
@@ -12,10 +12,10 @@
   再验证角色、无 delegated scope 和登记的 azp/oid 对。可选 idtyp 出现时必须为 app；
   未提供 idtyp 时仍要求匹配已登记的 service principal oid，不采用仅 azp 授权。
 - `src/server.ts` 在任何非健康路由前验证原始 Bearer token，拒绝重复 Authorization header、
-  外部指定 app ID 和普通调用者的管理入口访问。未实现路由在认证后返回 404。
+  外部指定 app ID 和普通调用者的管理入口访问。`/v1` 进入应用归属校验和任务控制，管理路由由独立 delegated 验证处理。
 - `src/main.ts` 提供配置失败退出、监听与关闭入口。结构化日志只含事件、服务端 request ID、
   状态码、耗时或启动/关闭信息，不记录 URL、headers、token、异常详情或模型内容。
-- `GET /health/live` 返回 200；`GET /health/ready` 当前返回 503，等待存储和所有权初始化。
+- `GET /health/live` 返回 200；`GET /health/ready` 只有认证/数据拥有者有效且 Queue 首次 receive 成功才返回 200。
   生产没有跳过认证或强制 readiness 的环境开关。
 
 固定工具链为 Node.js 24.x（最低 24.14.1）、TypeScript 7.0.2 和 npm lockfile。
@@ -27,7 +27,7 @@ Dockerfile 已提供两阶段非 root 镜像定义，已通过 Podman 构建及�
 固定 `@earendil-works/pi-coding-agent@0.85.1` 与 `@earendil-works/pi-ai@0.85.1`。
 `src/pi.ts` 的 `createPi(CredentialStore)` 只开放 DeepSeek 的 `api_key` 和 `openai-codex` 的 `oauth`，
 后者为 Pi 内置 subscription provider。启动使用内置模型目录和内存模型缓存，禁用远程目录更新与 models.json 发现。
-模块依赖调用方提供 store；管理入口已挂接 `FileCredentials`，测试同时覆盖内存与真实本地文件。
+模块依赖调用方提供 store；管理和业务共享同一个 `FileCredentials`，测试同时覆盖内存与真实本地文件。
 
 登录复用 provider 原生交互，在 store 的 `modify` 内完成并保存；不把返回凭据交给业务调用方。
 登录 deadline 为五分钟，交互实现必须响应 abort signal。退出使用 store 的串行 delete。
@@ -40,7 +40,9 @@ OAuth 刷新失败或取消时在同一 mutation 内持久写入重新登录标�
 
 `openConversation` 创建独立的内存 SessionManager，显式设置空工具列表并禁用所有工具、扩展、skills、
 templates、themes 与本地 context files。关闭自动 compaction 和 provider/agent 自动重试，
-避免在持久任务协调尚未接入时隐式增加模型请求。当前会话不跨进程恢复，也未暴露 HTTP 调用。
+避免隐式增加模型请求。每次执行由 Files 中成功历史重建内存会话，不让 Pi 直接写 SMB 会话文件。
+服务持久 session ID 与固定 system prompt 在该会话的 SDK streamFunction 边界固定，剔除 Pi 自动附加的临时工作目录；
+同时透传最大输出 token，保留 SDK 原有认证和流实现，不复制 agent loop。
 无工具与历史隔离测试使用真实 AgentSession，仅替换 provider stream；认证刷新测试替换 OAuth 网络行为。
 这些本地测试不证明 Azure Files SMB 锁、跨进程 fencing、真实 subscription 登录或账户可用性。
 
@@ -50,7 +52,10 @@ Pi 发布包的部分 `.d.ts` 缺少 NodeNext JSON import attributes，传递依
 ## 组件方向
 
 管理入口为 `admin-main.ts → admin-server.ts → AdminControl → Pi → FileCredentials`。
-它与业务入口分别启动；认证目录始终只有一个拥有者，后续统一入口时在同一进程共享拥有者。
+独立维护入口仍可启动；`main.ts` 在同一进程组合管理 handler 与业务路由，共享认证拥有者、Pi 与 AdminControl。
+两个入口不得同时持有相同认证目录；业务入口还要求不与认证目录重叠的数据目录及 Queue 配置。
+`main.ts` 完全未配置 `MOCHI_ADMIN_*` 时保持原 API-only 模式，不挂管理 handler；任何部分管理配置均拒绝启动，
+不降级绕过认证。统一模式同时验证业务配置与完整管理配置，仍只有一个凭据拥有者。
 Entra 个人 delegated scope 与本人 oid 白名单独立于应用 `Mochi.Invoke` 认证。
 管理端 bootstrap 静态资源可匿名，管理 API 必须重新验证 Bearer token、Origin 与短期管理会话。
 独立 HTTPS 地址通过 ACA 托管路径路由只公开管理资源；Container App 保持内部 ingress，业务路径不进入公网路由。
@@ -89,7 +94,7 @@ API key 的持久化保存与 runtime override 必须区分；OAuth 刷新后的
 
 Mochi 拥有执行会话、任务状态和 provider 认证；消费者拥有正文、角色等 canonical 业务数据。
 共享资源由 `ccp` 提供，Mochi 定义镜像、配置、健康检查和存储需求。
-首期长任务在 Mochi 服务边界内处理，不部署 ACA Jobs 或独立工具执行器；持久化任务状态与事件恢复的具体实现仍待确定。
+首期长任务在 Mochi 服务边界内处理，不部署 ACA Jobs 或独立工具执行器；具体持久状态与事件契约见 [Agent API](API.md)。
 初始资源为 0.5 vCPU / 1 GiB；允许空闲缩容至零、接受冷启动等待，须验证运行中任务的保护机制。
 容器监听 0.0.0.0:8080（PORT=8080），/health/live 检查进程，/health/ready 检查初始化、存储和认证所有权；探针不调用付费模型。
 每个应用后端使用独立 Managed Identity 获取 Mochi API 的 Entra app-only token，由已验证身份决定 app_id；管理入口独立校验个人登录和管理员身份。CCP 管理部署 digest，Mochi 本地构建并推送共享 ACR 中的自身镜像。
@@ -105,7 +110,7 @@ Mochi 从 `MOCHI_AUTH_MODE=entra`、`MOCHI_ENTRA_ISSUER`、`MOCHI_ENTRA_AUDIENCE
 
 ## 技术方向与官方入口
 
-运行时以 Pi SDK 为核心，已固定 TypeScript 与 Pi 0.85.1；管理部署与凭据持久化已接入，业务执行仍待首个 app 联调。
+运行时以 Pi SDK 为核心，已固定 TypeScript 与 Pi 0.85.1；管理部署与凭据持久化已接入，业务执行已本地接通首个 app，统一云部署仍待 MOC-004。
 
 - [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)
 - [Pi providers](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md)
@@ -120,7 +125,7 @@ Mochi 从 `MOCHI_AUTH_MODE=entra`、`MOCHI_ENTRA_ISSUER`、`MOCHI_ENTRA_AUDIENCE
 验证持久排队、从零唤醒、执行中消息续期及缩容协调。任务状态与消息派发职责分开，持久化状态与入队失败的边界须处理。
 消息重复或超时重新出现不授权自动重放有副作用的任务；按任务 ID 去重，结果不确定时记录中断并允许明确重试。
 实际平台上的缩容行为尚未验证。会话、任务状态与事件采用 Azure Files 文件存储，按 app_id/session_id/run_id 隔离；单一活动写入者负责落盘与恢复，不在 SMB 上运行 SQLite。
-首期串行执行 Agent 任务；提交请求支持应用范围内幂等键，先保存任务再入队，两者成功后才确认接受。入队失败需可核对补发，终态消息不重跑；具体事件文件格式由实现固定。
+首期串行执行 Agent 任务；提交请求支持应用范围内幂等键，先保存任务再入队，两者成功后才确认接受。入队失败可按应用幂等 key 查询或原请求补发，终态消息不重跑。
 
 ## 验证方向
 
@@ -128,3 +133,36 @@ Mochi 从 `MOCHI_AUTH_MODE=entra`、`MOCHI_ENTRA_ISSUER`、`MOCHI_ENTRA_AUDIENCE
 在实际 Azure Files SMB 挂载上验证锁定、文件替换、写失败和备份恢复；本地文件锁测试不能代替该证据。
 验证工具 allowlist、越权参数拒绝及默认 shell/代码执行工具未启用。
 真实 subscription 登录及模型调用按实际账户与授权范围验证，不能用 mock 宣称兼容全部 provider。
+
+
+## 持久任务实现与恢复
+
+`TaskStore → Tasks → AzureQueue → piExecutor` 分别负责文件所有权、状态/应用授权、消息租约与 Pi 执行。
+固定 `@azure/storage-queue@12.31.0` 与 `@azure/identity@4.13.2`。沿用 CCP 的
+`MOCHI_QUEUE_ACCOUNT_URL`、`MOCHI_QUEUE_NAME`、可选 `AZURE_CLIENT_ID`，仅 Managed Identity，
+不创建 Queue、不读取管理属性，不扩大既定消息发送/处理权限。
+消息为 base64 编码 JSON `{schema_version:1,app_id,run_id}`，TTL 为 -1；不包含 prompt 或 token。
+每轮消费前核对 queued/dispatched=false 的持久 outbox，仅补发这些未开始任务；暂时发送失败停止就绪并按一秒间隔重试，
+不需要进程重启或应用再次 POST，关闭过程不派发。receive visibility 60 秒，20 秒续期并使用最新 pop receipt。服务首期全局只有一个消费者/执行者；
+续期失败立即 abort 并记录 interrupted，消息不删除，后续根据终态去重。Queue 故障停止就绪并关闭服务，
+不能把进程存活当作队列健康。未知/错误消息形状或 app/run 不匹配不会执行模型，停止服务等待维护核对。
+
+数据共享是已存在、受信任的 Linux/容器目录；沿路径验证静态 symlink，文件拒绝 symlink、hardlink 和非普通文件。
+数据有独立 `.owner/id` 排他拥有者，每秒核对且每次读写重新核对，无过期抢占。目录结构为
+`<data>/<app_id>/<session_id>/session.json` 和 `<run_id>.json`；session 固定前缀，run 保存输入、状态、
+输出、usage 与单调 events。文件先以 wx 创建同目录临时文件，fsync 后 rename，再 fsync 目录；
+任务/状态与事件写在同一 JSON，避免半条 append 事件。正常并发由单拥有者和进程内串行写协调；不承诺恶意 ancestor-swap 防护，
+不使用 native helper。全局队列派发顺序不承诺跨会话 FIFO；同会话只允许一个未完成 run。
+
+运行时缓存文件投影，重启只在取得所有权后加载；格式损坏/半建会话目录使启动失败，不猜测修复、不丢弃文件。
+异常退出留下 `.owner` 必须确认旧进程/旧 revision 停止后，由维护流程移除 exact `.owner/id` 与空目录。
+先备份并核对半写/损坏记录，再恢复，不递归清空数据；已持久 running 转 interrupted，queued 重新派发，终态不重放。
+运行停止先断队列和模型、等待任务终态与管理 mutation，再释放 data/auth 所有者；45 秒未结束则失败退出并保留锁。
+本地测试覆盖此文件模型；Azure Files/Queue 实际故障、从零唤醒、执行中缩容和备份恢复必须由 MOC-004 实测。
+
+应用请求预算保守使用 UTF-8 字节上界与目录 context window，不自动截断/压缩；完整输出仅接受 provider stop。
+返回 usage 来自 provider，缺失或零占位为 null；重建历史所需的内部零 usage 占位不汇总为当前调用计量。
+每次执行用随机隔离临时工作目录，不发现本地文件，结束清理。持久历史仍按 app/session 隔离。
+
+官方 SDK 参考：[Azure QueueClient](https://learn.microsoft.com/javascript/api/@azure/storage-queue/queueclient?view=azure-node-latest)、
+[Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)。
