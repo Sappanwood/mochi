@@ -58,3 +58,5 @@ git diff --check
 `docs check` 仅检查固定文档存在、类型与一级标题，不代替内容审阅或后续代码测试。
 实现功能后同步产品和架构文档，运行覆盖实际变更的测试及质量门禁。
 已有 CodeGraph 索引且修改其覆盖源码时收尾运行 `codegraph sync`；没有索引则跳过。
+
+应用发布 workflow 与 `scripts/deploy.py` 的修改需运行 Python 发布行为测试，随后执行项目既有质量门禁。日常发布入口与维护边界见 README；不得恢复 CCP 与应用双重管理 image。

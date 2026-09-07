@@ -1,0 +1,69 @@
+name: CI and image
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'test/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/**'
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.14.1
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - run: npm run check
+  build:
+    needs: quality
+    if: github.event_name == 'push' && github.repository == 'Sappanwood/mochi' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Build and push immutable image
+        env:
+          ACR_NAME: ${{ vars.ACR_NAME }}
+        run: |
+          test "$ACR_NAME" = mochia4c005ba3f
+          az acr login --name "$ACR_NAME"
+          mkdir -p release
+          docker buildx build --platform linux/amd64 --push \
+            --tag "$ACR_NAME.azurecr.io/mochi:sha-$GITHUB_SHA" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --metadata-file release/build.json .
+          digest=$(python3 -c 'import json; print(json.load(open("release/build.json"))["containerimage.digest"])')
+          BUILD_IMAGE="$ACR_NAME.azurecr.io/mochi@$digest" python3 scripts/deploy.py record
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image
+          overwrite: true
+          path: release/image.json
+          if-no-files-found: error
+          retention-days: 90

@@ -89,3 +89,30 @@ Dockerfile 使用两阶段构建和非 root 用户，构建上下文仅包含源
 无工具会话关闭 extensions、skills、prompt templates 和本地上下文发现。
 独立管理入口使用 `npm run start:admin`，提供 key 保存和 OpenAI 设备码授权；所需 Entra 与目录配置见
 [管理服务](docs/ADMIN.md)。测试使用临时/内存数据和 mock provider，不读取个人凭据。
+
+## GitHub Actions 日常发布
+
+main 的应用相关变更通过质量检查后自动构建和推送；发布由手动 workflow 触发。PR 执行质量检查，不请求 Azure OIDC。纯文档 push 不触发构建或部署。
+
+`.github/workflows/ci.yml` 使用 Node.js 24.14.1、Dockerfile 和 linux/amd64，完成现有质量门禁后，
+通过本 Repo main 的 OIDC 身份推送 `mochia4c005ba3f.azurecr.io/mochi`。Actions Summary 和 `image`
+artifact 的 `image.json` 保存 commit、build run ID 和不可变 digest；镜像使用 commit tag，实际发布按 digest。
+
+重新部署：在 Actions → **Deploy verified build** → **Run workflow** 选择 main，填写本 Repo 某次成功
+**CI and image** 的 run ID。入口验证来源为本 Repo main push、workflow 与 commit 相符，再读取其 image artifact。
+回到旧版本时，从上一次成功部署 Summary 找到 build run ID，使用同一入口；不会重新构建或修改 Terraform。
+构建记录和成功部署记录保留 90 天，过期 artifact 不能通过此入口部署，需重新构建。部署失败保留失败日志，不自动回滚。
+
+两个发布入口共用 Repo 内 `production-deploy` concurrency group，不取消正在运行的发布；GitHub 只保留一个 pending job，
+更多排队请求可能替换此前 pending，且不保证排队次序。每次发布后核对 Summary 的 commit/digest/revision。
+Mochi 由本人协调停止接单、在途任务、备份及旧 owner 释放，并先停止 ACA。发布入口核对 Stopped 后更新 image 并 start，不自动排空、停止或备份。readiness 由 ACA 探针和 latestReadyRevisionName 验证，公网检查管理页面与匿名 `/admin/providers` 返回 401；GitHub runner 不访问内部业务域名。
+
+CCP/Terraform 管理 ACA、身份权限、环境变量、挂载及缩放等非镜像配置；本 Repo 的 workflow 只传入目标容器和 image。
+Terraform 精确忽略 `template[0].container[0].image`，避免基础设施更新回退已发布版本；基础设施操作期间由本人协调暂停应用发布。
+Azure RBAC 的 Container App write 无法限制为单独 image 字段，image-only 是受信任 main workflow 的代码约束。
+
+仓库使用已有 Variables：`AZURE_CLIENT_ID`、`AZURE_TENANT_ID`、`AZURE_SUBSCRIPTION_ID`、`ACR_NAME`。
+不配置 GitHub environment（会改变现有 main OIDC subject），不使用 Azure client secret、跨仓库 PAT 或 GitHub App。
+本地发布脚本行为检查：`python3 -m unittest discover -s scripts -p 'test_*.py'`。
+
+此流程已在代码中准备；本轮新增 ACA 权限与首次真实 Actions 发布尚待实际执行验收，不能用本地测试替代。

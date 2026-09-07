@@ -97,7 +97,7 @@ Mochi 拥有执行会话、任务状态和 provider 认证；消费者拥有正�
 首期长任务在 Mochi 服务边界内处理，不部署 ACA Jobs 或独立工具执行器；具体持久状态与事件契约见 [Agent API](API.md)。
 初始资源为 0.5 vCPU / 1 GiB；允许空闲缩容至零、接受冷启动等待，须验证运行中任务的保护机制。
 容器监听 0.0.0.0:8080（PORT=8080），/health/live 检查进程，/health/ready 检查初始化、存储和认证所有权；探针不调用付费模型。
-每个应用后端使用独立 Managed Identity 获取 Mochi API 的 Entra app-only token，由已验证身份决定 app_id；管理入口独立校验个人登录和管理员身份。CCP 管理部署 digest，Mochi 本地构建并推送共享 ACR 中的自身镜像。
+每个应用后端使用独立 Managed Identity 获取 Mochi API 的 Entra app-only token，由已验证身份决定 app_id；管理入口独立校验个人登录和管理员身份。Mochi Actions 构建并推送 ACR、手动发布自身 digest；CCP 管理非镜像基础设施。
 
 ## 应用访问认证契约
 
@@ -166,3 +166,7 @@ Mochi 从 `MOCHI_AUTH_MODE=entra`、`MOCHI_ENTRA_ISSUER`、`MOCHI_ENTRA_AUDIENCE
 
 官方 SDK 参考：[Azure QueueClient](https://learn.microsoft.com/javascript/api/@azure/storage-queue/queueclient?view=azure-node-latest)、
 [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)。
+
+## 镜像发布所有权
+
+应用 GitHub Actions 在本仓库 main 通过 OIDC 构建、推送并发布 image digest。CCP 的两个 ACA 资源仅忽略 image 字段，其余配置仍受 Terraform 管理。发布不读取 Terraform state，不调用 CCP workflow；触发与维护边界见 [README](../README.md#github-actions-日常发布)。

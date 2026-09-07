@@ -6,3 +6,7 @@ dist/
 coverage/
 *.log
 .pi/
+
+# Local deployment verification output
+release/
+scripts/__pycache__/
