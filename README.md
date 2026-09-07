@@ -115,4 +115,6 @@ Azure RBAC 的 Container App write 无法限制为单独 image 字段，image-on
 不配置 GitHub environment（会改变现有 main OIDC subject），不使用 Azure client secret、跨仓库 PAT 或 GitHub App。
 本地发布脚本行为检查：`python3 -m unittest discover -s scripts -p 'test_*.py'`。
 
-此流程已在代码中准备；本轮新增 ACA 权限与首次真实 Actions 发布尚待实际执行验收，不能用本地测试替代。
+2026-09-07 [运行 34120009601](https://github.com/Sappanwood/mochi/actions/runs/34120009601) 已完成真实质量检查、OIDC 和 ACR 推送，
+提交 `3f28e0741bc7cfddb6e72d18092e280d54b41005`，构建 digest `sha256:2938fe6b19be1de720bba66e4b8f90bf9fc47704530345af772de52510f90376`。
+新增 ACA 发布权限已部署并读回；首次手动生产发布尚未执行，不能用构建成功替代发布验收。
