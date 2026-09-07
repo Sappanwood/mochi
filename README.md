@@ -117,4 +117,5 @@ Azure RBAC 的 Container App write 无法限制为单独 image 字段，image-on
 
 2026-09-07 [运行 34120009601](https://github.com/Sappanwood/mochi/actions/runs/34120009601) 已完成真实质量检查、OIDC 和 ACR 推送，
 提交 `3f28e0741bc7cfddb6e72d18092e280d54b41005`，构建 digest `sha256:2938fe6b19be1de720bba66e4b8f90bf9fc47704530345af772de52510f90376`。
-新增 ACA 发布权限已部署并读回；首次手动生产发布尚未执行，不能用构建成功替代发布验收。
+[手动发布 34123358956](https://github.com/Sappanwood/mochi/actions/runs/34123358956) 已成功将该 digest 发布到 `mochi-agent--0000004`，
+容器就绪且重启次数为零，管理页面 200、匿名管理请求 401。发布脚本修复提交的 [CI 34123219162](https://github.com/Sappanwood/mochi/actions/runs/34123219162) 亦已通过；生产仍使用上述明确选择的构建。

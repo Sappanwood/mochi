@@ -232,3 +232,14 @@ A 的完整草稿已采纳为测试章节 v1，刷新后内容一致。B 在观�
 该证据覆盖同一应用身份下两个独立会话的正常执行、草稿采纳和排队阶段页面断线恢复。未覆盖
 `running` 时断线或任务中断、进程崩溃恢复、两个应用身份隔离、Queue 重复投递/租约故障或执行中缩容。
 OpenAI subscription 登录与刷新已验证，但本次没有调用 subscription 模型。
+
+## 空 owner 启动故障与 Actions 发布验证
+
+2026-09-07 曾出现镜像拉取成功后进程退出 1，日志为 `startup_failed/invalid_configuration_or_storage`。
+现场认证共享存在空 `.owner/`，FileCredentials 会将其判为 `ownership_busy`。经授权 stop 并确认所有 revision 零副本后，
+仅删除该空目录；auth.json 元数据保持不变。重新启动后页面 200、匿名管理请求 401，两个共享均生成 owner ID，
+容器就绪且重启次数为零。后续两次正常停机均自动释放 owner；空目录最初遗留的原因尚未确认。
+
+首次 Actions 发布更新了镜像，但公网页面检查读取超时使 workflow 失败；补充暂时性公网错误的有界重试后，
+[发布 34123358956](https://github.com/Sappanwood/mochi/actions/runs/34123358956) 成功，目标为 `mochi-agent--0000004`。
+本轮没有恢复历史凭据或调用模型，不替代执行中断和业务恢复验收。
