@@ -20,6 +20,7 @@ Backlog、Plan、execution、Report、ADR、Research 均由 ProjectOps 管理，
 
 ## 开发边界
 
+- 当前阶段以快速迭代为主，验收覆盖主要 happy path；真实使用中出现的 bug 再针对性处理，不为追求工程完备性主动扩展实现与验收范围。
 - 每个项目独立维护代码和部署契约；跨项目需求明确写出对方项目 ID。
 - 不把凭据、OAuth token、运行会话、云状态或私有素材提交到 Git。
 - 首期无应用工具，仅支持 DeepSeek API key 和 OpenAI subscription（`openai-codex`）；不得隐式启用默认工具或 OpenAI API key fallback。
