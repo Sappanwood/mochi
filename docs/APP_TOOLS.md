@@ -3,7 +3,7 @@
 ## 状态与范围
 
 本契约于 2026-09-08 接受。Mochi 运行时已实现工具快照、固定认证回调、有限预算、完整 Pi 历史与收据核实，
-通过真实 Pi AgentSession 和隔离 HTTP/provider 测试，尚未发布。应用侧授权策略和业务工具由消费者接入；
+通过真实 Pi AgentSession 和隔离 HTTP/provider 测试，并于 2026-09-08 发布到云端。应用侧授权策略和业务工具由消费者接入；
 本文同时固定其必须遵循的契约，不把 Mochi 单仓库测试当成消费者或云端验收。无工具接口见 [Agent API](API.md)。第一消费者为 mochi-write：
 Agent 在已有故事中自主取材、创建独立草稿，并在明确授权下新建最多一章。不覆盖原章节，不修改角色或世界观，
 不创建故事，不开放 shell、文件工具、扩展发现、任意地址访问或多 Agent。真实模型与本地隔离工具联调不等于云回调认证验收。
@@ -29,7 +29,9 @@ Mochi 使用 Managed Identity 为固定 audience 的 `/.default` scope 取得 ap
 Write 校验 JWT 签名、RS256、issuer、audience、tenant、有效期、v2、azp/oid 对及 `Write.Tools.Invoke` 角色，
 拒绝 delegated scopes，并映射为固定 Mochi 服务身份。调用 body 中的 app_id 仅用于一致性核对，不决定身份。
 个人浏览器 token 不能调用工具 callback；Mochi callback 身份不因此获得普通资产编辑 API 权限。
-实际 audience/client/principal GUID 由部署提供。新增反向角色授予和生产发布不属于本次本地实施。
+实际 audience/client/principal GUID 由部署提供。2026-09-08 已部署既有 Mochi runtime MI 的
+Application-only `Write.Tools.Invoke` 授予、两端身份 allowlist 与上述三个工具的固定 HTTPS 配置；
+云端执行证据与未验收边界见 [创作工具云发布](ADMIN.md#创作工具云发布)。
 认证 token、provider key 不进入工具参数、prompt、Pi 历史、事件、日志或收据。
 
 ## 会话与版本快照

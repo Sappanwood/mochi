@@ -6,7 +6,7 @@
 
 已建立 Node.js/TypeScript 服务基础、Entra app-only JWT 认证和本地测试入口。
 已接入固定 Pi SDK 的无工具会话及 DeepSeek API key / OpenAI subscription 适配模块。
-本地已实现按 app 登记的工具快照、固定认证回调、完整 Pi 历史、有界执行和业务收据核实；尚未发布，消费者集成另行验收。
+2026-09-08 已发布按 app 登记的工具快照、固定认证回调、完整 Pi 历史、有界执行和业务收据核实；Write 反向身份与工具配置已部署，云端业务验收见 [创作工具云发布](docs/ADMIN.md#创作工具云发布)。
 已实现 auth.json 持久凭据、排他所有权，以及独立的 Entra 个人认证管理页面；已部署独立 HTTPS 管理入口，用户已验证 DeepSeek key 保存和 OpenAI 登录。
 管理地址：[Mochi 认证管理](https://mochiadmin.whitemeadow-6e32159b.eastus.azurecontainerapps.io)。
 已实现统一管理/业务入口、持久会话/任务、Azure Queue 派发与事件恢复；本地真实 HTTP/Pi SDK 接缝已接通。

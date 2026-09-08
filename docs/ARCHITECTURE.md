@@ -3,7 +3,7 @@
 ## 当前状态
 
 已实现 Node.js HTTP 服务、配置校验、Entra JWT 认证及 Pi 无工具会话/provider 适配模块；
-本地新增应用工具运行时、消息持久化及收据核实，尚未发布。
+应用工具运行时、消息持久化及收据核实已于 2026-09-08 云发布，Write 反向身份和工具配置已部署。
 已补充 `FileCredentials` 与独立 Entra 管理入口。统一业务/管理服务已云发布，Files 认证与数据目录由同一活动实例分别持有。真实 Write Managed Identity 已通过业务模型目录认证，本人管理登录正常；两个独立会话已通过真实 Queue/Pi/DeepSeek V4 Flash 正常执行链路，排队时页面断开后原任务可恢复；实际故障、执行中断与跨应用身份隔离仍待验收。
 
 ## 已实现服务基础
@@ -172,7 +172,7 @@ Mochi 从 `MOCHI_AUTH_MODE=entra`、`MOCHI_ENTRA_ISSUER`、`MOCHI_ENTRA_AUDIENCE
 
 应用 GitHub Actions 在本仓库 main 通过 OIDC 构建、推送并发布 image digest。CCP 的两个 ACA 资源仅忽略 image 字段，其余配置仍受 Terraform 管理。发布不读取 Terraform state，不调用 CCP workflow；触发与维护边界见 [README](../README.md#github-actions-日常发布)。
 
-## 应用工具运行时（已实现、尚未发布）
+## 应用工具运行时
 
 [应用工具契约](APP_TOOLS.md)是双方接入接口：按已认证 app 静态绑定回调地址、反向 Entra audience 和工具 allowlist，
 会话固定 system prompt/schema/version 快照，run 固定业务 scope 与有限预算。Pi 0.85.1 注册 customTools 并显式传入 tools 名单；
@@ -188,4 +188,5 @@ Mochi 不决定业务授权，也不让应用接触 provider 凭据。正式业�
 `src/app-tools.ts` 校验静态配置/schema并通过 Managed Identity 调用固定 endpoint；`src/tool-execution.ts` 将快照映射为
 sequential customTools，等待消息、调用和收据持久屏障。`Tasks` 保存完整 Pi 消息、调用、产物、累计 usage 和业务收据，
 终态 POST operations/verify 可更新核实证据而不改变模型终态。Pi agent.subscribe 的 await listener 负责消息屏障。
-回调生产身份和角色由部署配置提供，本地签名测试身份与假 provider 联调不代表生产反向 MI 已上线。
+回调生产身份和角色由 CCP 配置，2026-09-08 已完成反向 MI 角色与两端环境配置部署。
+运行版本、真实业务验收及其边界见 [创作工具云发布](ADMIN.md#创作工具云发布)。

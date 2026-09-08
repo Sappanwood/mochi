@@ -4,7 +4,7 @@
 
 管理服务可独立运行，使用 Entra 个人登录，精确允许一个 tenant/oid。它提供 DeepSeek API key
 保存、更换、移除，OpenAI subscription 设备码登录、取消和移除，以及脱敏认证状态和固定 Pi 模型目录。
-首期无应用工具。统一入口已接入业务会话/任务 API 并完成云发布；部署和身份验收与真实任务执行验收分别记录，见下文[统一服务云发布](#统一服务云发布)。
+默认无应用工具；显式应用工具运行时也已发布。统一入口已接入业务会话/任务 API；部署和身份验收与真实任务执行验收分别记录，见下文[统一服务云发布](#统一服务云发布)与[创作工具云发布](#创作工具云发布)。
 
 管理入口已部署：[https://mochiadmin.whitemeadow-6e32159b.eastus.azurecontainerapps.io](https://mochiadmin.whitemeadow-6e32159b.eastus.azurecontainerapps.io)。
 2026-09-06 用户确认已通过真实管理页完成 Entra 登录、DeepSeek API key 注册和 OpenAI 登录流，正常途径成功。
@@ -243,3 +243,18 @@ OpenAI subscription 登录与刷新已验证，但本次没有调用 subscriptio
 首次 Actions 发布更新了镜像，但公网页面检查读取超时使 workflow 失败；补充暂时性公网错误的有界重试后，
 [发布 34123358956](https://github.com/Sappanwood/mochi/actions/runs/34123358956) 成功，目标为 `mochi-agent--0000004`。
 本轮没有恢复历史凭据或调用模型，不替代执行中断和业务恢复验收。
+
+## 创作工具云发布
+
+2026-09-08 源码 `ec98d45` 经 [CI 34183579411](https://github.com/Sappanwood/mochi/actions/runs/34183579411)
+和[发布 34184120148](https://github.com/Sappanwood/mochi/actions/runs/34184120148) 成功部署到
+`mochi-agent--0000006`，digest 为 `sha256:ce04545072222dd77b20b7420cb53b79824b1b3612905be2ef3964904b950a8b`。
+新单副本取得 auth/data owner，发布前后 auth.json 摘要一致；本轮两份按需备份均 Completed，
+已核对新增恢复点，七天保留请求到 2026-09-15。恢复点存在不等同于独立核验实际到期时间或完成恢复演练。
+
+CCP 已将 Application-only `Write.Tools.Invoke` 授予既有 Mochi runtime MI，Graph 与两端 ACA 环境配置
+经独立核对一致，固定工具/operation HTTPS endpoint 和三工具白名单已配置。
+Write `mochi-write--0000005` 接入后，真实 `deepseek-v4-flash` 的独立草稿、选定草稿保存、直接授权创作
+三项云端 smoke 均通过。直接创作任务为 `succeeded/committed`，最终正式章节恰好两章，
+正文与对应草稿一致且 receipt hash 匹配。本轮模型费用保守上界为 USD 0.02845084，不是账单金额。
+这些正常工具调用和正式写入证据不代表 MOC-004 的执行中断、跨应用隔离、Queue 故障及业务恢复已经验收。
