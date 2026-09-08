@@ -278,5 +278,6 @@ Write `mochi-write--0000005` 接入后，真实 `deepseek-v4-flash` 的独立草
 最新公开管理页面返回 200，匿名管理 API 返回 401。
 
 上述证据确认运行时和基础设施配置发布；Write [发布 34206133631](https://github.com/Sappanwood/mochi-write/actions/runs/34206133631)
-在本阶段记录时仍进行中。最终完整 Terraform 漂移检查、Cosmos 索引转换进度和本人浏览器的新作品流程尚未验收，
+已成功上线 revision `mochi-write--0000006`。最终完整真实输入 Terraform 无漂移，Write 原有 MI 读取 metadata
+确认 library 索引转换进度 100%。本人浏览器的新作品流程及旧云会话兼容复验仍因测试 profile 占用未完成，
 不能由 revision ready 或匿名检查推断完成；MOC-004 的业务故障恢复范围也未因此关闭。
