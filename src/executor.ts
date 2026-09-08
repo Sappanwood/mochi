@@ -25,6 +25,7 @@ export function piExecutor(pi: Pi, appTools = new AppTools({})): Execute {
       await mkdir(cwd); await mkdir(agentDir);
       session = await openConversation(pi, { cwd, agentDir, provider: input.run.input.provider, model: input.run.input.model,
         sessionId: input.session.session_id, systemPrompt: input.session.system_prompt, maxOutputTokens: input.run.input.max_output_tokens,
+        thinkingLevel: input.session.thinking_level,
         history: input.history, piHistory: input.piHistory, customTools: tools?.customTools });
       const current = session;
       const abort = () => { void current.abort(); };

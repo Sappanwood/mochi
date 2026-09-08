@@ -44,6 +44,12 @@ templates、themes 与本地 context files。关闭自动 compaction 和 provide
 避免隐式增加模型请求。每次执行由 Files 中成功历史重建内存会话，不让 Pi 直接写 SMB 会话文件。
 服务持久 session ID 与固定 system prompt 在该会话的 SDK streamFunction 边界固定，剔除 Pi 自动附加的临时工作目录；
 同时透传最大输出 token，保留 SDK 原有认证和流实现，不复制 agent loop。
+session 可选的 `thinking_level:"off"` 从 `Tasks` 持久化，经 `piExecutor` 传入 `createAgentSession.thinkingLevel`；
+只改变显式选择它的会话，旧 session 不补字段，也不通过提示文本或空工具集合推断意图。
+固定 Pi 0.85.1 将 DeepSeek off 投影为 `thinking:{type:"disabled"}`，省略时继续由 SDK 默认 medium 调整为 high。
+不重写 provider 能力处理；不支持 off 的 `openai-codex/gpt-6-astra` 仍由 SDK 调整为 minimal。
+HTTP 测试覆盖参数拒绝、持久恢复和后续 run；真实 Pi 与本地假 DeepSeek HTTP 服务验证 disabled 投影及普通会话默认不变。
+该设置不改变 Write 的有限授权校验、截断失败判定或重试策略，Mochi 必须先于 opt-in 消费者发布。
 无工具与历史隔离测试使用真实 AgentSession，仅替换 provider stream；认证刷新测试替换 OAuth 网络行为。
 这些本地测试不证明 Azure Files SMB 锁、跨进程 fencing、真实 subscription 登录或账户可用性。
 

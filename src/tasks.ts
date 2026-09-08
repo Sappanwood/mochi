@@ -51,12 +51,14 @@ export class Tasks {
     this.#tail = result.catch(() => {}); return result;
   }
   async createSession(appId: string, value: unknown) {
-    const input = object(value); keys(input, ['system_prompt', 'tools']);
+    const input = object(value); keys(input, ['system_prompt', 'tools', 'thinking_level']);
     const snapshot = this.appTools.validate(appId, input.tools);
     if (snapshot && !text(input.system_prompt)) throw new TaskError(400, 'invalid_request');
     if (input.system_prompt !== undefined && !text(input.system_prompt)) throw new TaskError(400, 'invalid_request');
+    if (input.thinking_level !== undefined && input.thinking_level !== 'off') throw new TaskError(400, 'invalid_request');
     return this.#serial(async () => {
-      const session = { app_id: appId, session_id: randomUUID(), created_at: now(), system_prompt: input.system_prompt as string ?? defaultSystem, ...snapshot };
+      const session: StoredSession = { app_id: appId, session_id: randomUUID(), created_at: now(), system_prompt: input.system_prompt as string ?? defaultSystem,
+        ...(input.thinking_level === 'off' ? { thinking_level: 'off' } : {}), ...snapshot };
       await this.store.saveSession(session); const { app_id: _, ...result } = session; return result;
     });
   }

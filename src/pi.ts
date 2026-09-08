@@ -114,7 +114,7 @@ export async function createPi(credentials: CredentialStore) {
 export type Pi = Awaited<ReturnType<typeof createPi>>;
 
 export async function openConversation(pi: Pi, input: {
-  cwd: string; agentDir: string; provider: string; model: string; sessionId?: string; systemPrompt?: string; maxOutputTokens?: number;
+  cwd: string; agentDir: string; provider: string; model: string; sessionId?: string; systemPrompt?: string; maxOutputTokens?: number; thinkingLevel?: 'off';
   history?: { role: 'user' | 'assistant'; content: string }[]; piHistory?: PiMessage[]; customTools?: ToolDefinition[];
 }) {
   const model = await pi.requireModel(input.provider, input.model);
@@ -140,7 +140,7 @@ export async function openConversation(pi: Pi, input: {
   const { session } = await createAgentSession({
     cwd: input.cwd, agentDir: input.agentDir, modelRuntime: pi.runtime, model,
     tools: input.customTools?.map(tool => tool.name) ?? [], noTools: 'all', customTools: input.customTools ?? [], resourceLoader, settingsManager,
-    sessionManager: manager,
+    sessionManager: manager, thinkingLevel: input.thinkingLevel,
   });
   if (JSON.stringify([...session.getActiveToolNames()].sort()) !== JSON.stringify((input.customTools?.map(tool => tool.name) ?? []).sort())) {
     session.dispose();

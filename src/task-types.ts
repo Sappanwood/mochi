@@ -5,7 +5,7 @@ export class TaskError extends Error {
   constructor(status: number, code: string) { super(code); this.status = status; }
 }
 export const terminal = (status: string) => ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(status);
-export interface Session { session_id: string; created_at: string; system_prompt: string; tools?: ToolSnapshot[]; tool_snapshot_hash?: string }
+export interface Session { session_id: string; created_at: string; system_prompt: string; thinking_level?: 'off'; tools?: ToolSnapshot[]; tool_snapshot_hash?: string }
 export interface ModelInfo { provider: string; id: string; name: string; auth: string; context_window: number; max_output_tokens: number }
 export interface RunInput { idempotency_key: string; provider: string; model: string; prompt: string; max_output_tokens?: number; scope?: RunScope; budget?: RunBudget; tool_snapshot_hash?: string }
 export interface Usage { input: number; output: number; cache_read: number; cache_write: number; total_tokens: number }
