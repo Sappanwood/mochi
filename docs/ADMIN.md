@@ -258,3 +258,25 @@ Write `mochi-write--0000005` 接入后，真实 `deepseek-v4-flash` 的独立草
 三项云端 smoke 均通过。直接创作任务为 `succeeded/committed`，最终正式章节恰好两章，
 正文与对应草稿一致且 receipt hash 匹配。本轮模型费用保守上界为 USD 0.02845084，不是账单金额。
 这些正常工具调用和正式写入证据不代表 MOC-004 的执行中断、跨应用隔离、Queue 故障及业务恢复已经验收。
+
+## 作品初始化运行时与配置发布
+
+2026-09-08，源码 `db05247` 通过 [CI 34204905294](https://github.com/Sappanwood/mochi/actions/runs/34204905294)，
+经[手动发布 34205221731](https://github.com/Sappanwood/mochi/actions/runs/34205221731) 部署到
+`mochi-agent--0000007`，镜像 digest 为
+`sha256:74ae93ad0c65e131f4f58fd76e0cca18ce213e80e989ab603ccd13c582d12da0`。
+该版本提供作品初始化工具运行时及独立意图会话的 `thinking_level:"off"`；参数边界见 [Agent API](API.md#会话与模型)。
+
+随后 CCP 按新生成并审阅的完整生产计划执行 0 新增、2 更新、0 删除的配置 apply：
+仅把 Mochi 工具白名单从三项增加到七项，并为 Write library 增加五条 metadata 索引。
+本次配置更新保留两应用当时的镜像及既有权限、资源规格，产生 `mochi-agent--0000008`，已确认 ready。
+
+镜像发布与配置更新分别使用独立维护窗口：每次均确认 Stopped、零副本、auth/data 旧 owner 已释放，
+两共享均完成本窗口新备份并核对新增恢复点；保留请求日期为 UTC 2026-09-15。
+两次窗口内维护前后 auth.json 摘要均不变，恢复后确认单一拥有者；未恢复历史凭据。
+保留请求不等同于独立读回实际到期时间，本次未进行恢复演练。
+最新公开管理页面返回 200，匿名管理 API 返回 401。
+
+上述证据确认运行时和基础设施配置发布；Write [发布 34206133631](https://github.com/Sappanwood/mochi-write/actions/runs/34206133631)
+在本阶段记录时仍进行中。最终完整 Terraform 漂移检查、Cosmos 索引转换进度和本人浏览器的新作品流程尚未验收，
+不能由 revision ready 或匿名检查推断完成；MOC-004 的业务故障恢复范围也未因此关闭。
