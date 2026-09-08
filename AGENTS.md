@@ -23,7 +23,7 @@ Backlog、Plan、execution、Report、ADR、Research 均由 ProjectOps 管理，
 - 当前阶段以快速迭代为主，验收覆盖主要 happy path；真实使用中出现的 bug 再针对性处理，不为追求工程完备性主动扩展实现与验收范围。
 - 每个项目独立维护代码和部署契约；跨项目需求明确写出对方项目 ID。
 - 不把凭据、OAuth token、运行会话、云状态或私有素材提交到 Git。
-- 首期无应用工具，仅支持 DeepSeek API key 和 OpenAI subscription（`openai-codex`）；不得隐式启用默认工具或 OpenAI API key fallback。
+- 当前实现无应用工具；已接受、尚未实现的扩展遵循 `docs/APP_TOOLS.md`。仅支持 DeepSeek API key 和 OpenAI subscription（`openai-codex`）；不得隐式启用默认工具或 OpenAI API key fallback。
 - 外部 API、SDK、认证或云资源契约变更前查阅最新官方文档，并固定实际验证版本。
 - 新增收费资源、修改云权限或发布前，准备可审阅结果并按用户实际授权执行。
 - 本地文件操作先明确威胁模型；普通开发按受信任本地 Linux workspace，不默认要求对抗恶意 ancestor 替换。
@@ -37,6 +37,7 @@ Backlog、Plan、execution、Report、ADR、Research 均由 ProjectOps 管理，
 | docs/PRODUCT_SPEC.md | 明确用户行为和范围 | 产品流程、数据和验收边界变化 |
 | docs/ARCHITECTURE.md | 设计组件、依赖和存储 | 技术选型、所有权和部署契约变化 |
 | docs/API.md | 业务接口、任务和事件开发 | API schema、幂等、状态、预算、恢复语义变化 |
+| docs/APP_TOOLS.md | 应用工具、授权解释、回调和业务写入接入 | 工具协议、快照、预算、历史、授权和收据契约变化 |
 | docs/ADMIN.md | 管理服务开发、Entra 接入、认证恢复与发布交接 | 管理 API、会话、文件安全与操作流程变化 |
 | ProjectOps typed roots | 管理任务、决策和交付 | 通过对应 ProjectOps 契约维护 |
 

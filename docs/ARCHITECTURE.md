@@ -170,3 +170,16 @@ Mochi 从 `MOCHI_AUTH_MODE=entra`、`MOCHI_ENTRA_ISSUER`、`MOCHI_ENTRA_AUDIENCE
 ## 镜像发布所有权
 
 应用 GitHub Actions 在本仓库 main 通过 OIDC 构建、推送并发布 image digest。CCP 的两个 ACA 资源仅忽略 image 字段，其余配置仍受 Terraform 管理。发布不读取 Terraform state，不调用 CCP workflow；触发与维护边界见 [README](../README.md#github-actions-日常发布)。
+
+## 已接受的应用工具扩展（尚未实现）
+
+[应用工具契约](APP_TOOLS.md)是双方实施接口：按已认证 app 静态绑定回调地址、反向 Entra audience 和工具 allowlist，
+会话固定 system prompt/schema/version 快照，run 固定业务 scope 与有限预算。Pi 0.85.1 注册 customTools 并显式传入 tools 名单；
+保留默认无工具，禁用 built-in 工具与本地资源发现，不复制 Agent loop。
+
+Write 经独立无工具 Mochi 会话解释原始用户消息；Write 后端校验有限授权并拥有草稿、章节、原子幂等收据和撤回顺序。
+Mochi 不决定业务授权，也不让应用接触 provider 凭据。正式业务 OP 在 run 提交前固定；完整消息和调用记录先持久再派发，
+工具成功后先持久收据再继续模型。未知结果经固定认证 endpoint 核实，进程恢复不重放副作用。
+
+第一切片为已有故事取材、独立草稿与最多一章新建，采用独立意图解释的语义误判剩余风险已接受。
+回调生产身份和角色由部署配置提供，本地签名测试身份与真实 provider 联调不代表生产反向 MI 已上线。

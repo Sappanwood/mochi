@@ -1,5 +1,10 @@
 # Mochi Agent API
 
+## 已接受的工具扩展
+
+[应用工具契约](APP_TOOLS.md)定义已接受、尚未实现的会话工具快照、run scope/预算、callback、完整 Pi 历史和收据核实。
+本文其余部分仍描述当前无工具 API；扩展不会静默改变旧会话和客户端的响应形状。
+
 ## 范围与认证
 
 `/v1` 由 Web app 后端调用；生产用 Managed Identity 获取 `api://<MOCHI_ENTRA_AUDIENCE>/.default`。
