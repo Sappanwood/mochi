@@ -33,7 +33,7 @@ try {
   const owner = credentials; const data = store;
   const pi = await createPi(owner);
   const control = adminConfig ? new AdminControl(pi, owner.signal) : undefined;
-  const tasks = new Tasks(data, { send: id => queue.send(id, data.runs.get(id)!.app_id) }, pi.models);
+  const tasks = new Tasks(data, { send: id => queue.send(id, data.runs.get(id)!.app_id) }, pi.models, config.appTools);
   await tasks.recover();
   let stopping = false; let queueReady = false;
   const ready = () => !stopping && queueReady && !owner.signal.aborted && !data.signal.aborted;
@@ -41,7 +41,7 @@ try {
   const server = createServer({ authenticate: createAuthenticator(config.auth), isReady: ready, tasks,
     adminHandler: admin?.listeners('request')[0] as RequestListener | undefined, log });
   const controller = new AbortController();
-  const execute = piExecutor(pi);
+  const execute = piExecutor(pi, config.appTools);
   let worker: Promise<void>;
   async function shutdown() {
     if (stopping) return;

@@ -1,17 +1,18 @@
 # Mochi Agent API
 
-## 已接受的工具扩展
+## 工具扩展
 
-[应用工具契约](APP_TOOLS.md)定义已接受、尚未实现的会话工具快照、run scope/预算、callback、完整 Pi 历史和收据核实。
-本文其余部分仍描述当前无工具 API；扩展不会静默改变旧会话和客户端的响应形状。
+[应用工具契约](APP_TOOLS.md)定义已实现、尚未发布的会话工具快照、run scope/预算、callback、完整 Pi 历史和收据核实。
+本文其余部分描述默认无工具 API；扩展不改变旧会话和客户端的响应形状。工具会话 opt-in 的 history?format=pi-v1
+返回完整消息；POST /v1/runs/:id/operations/verify 核实终态未知业务 OP，保持模型终态及原始证据。
 
 ## 范围与认证
 
 `/v1` 由 Web app 后端调用；生产用 Managed Identity 获取 `api://<MOCHI_ENTRA_AUDIENCE>/.default`。
 服务器完整验证原始 Entra app-only JWT，并由 `azp/oid` 映射唯一 `app_id`；不接受调用者指定 app 身份。
 业务 token 不能进入个人管理 API；公开管理 shell 与管理认证契约见 [ADMIN.md](ADMIN.md)。
-首期只有 DeepSeek API key 与 OpenAI subscription (`openai-codex`)，无工具、扩展、本地文件发现或自动重试。
-本文描述已实现的接口契约。真实 Write Managed Identity 经 Queue/Pi 调用 DeepSeek V4 Flash 的两个独立会话任务已成功；其中一个任务在 queued 时页面断开，重开后通过原 run 恢复成功而未重发。该证据不覆盖 running 中断、进程恢复、两个 app_id 隔离或缩容故障；完整验收边界见 [管理服务](ADMIN.md#真实写作调用验收)。
+provider 只有 DeepSeek API key 与 OpenAI subscription (`openai-codex`)；默认无工具，不允许扩展、本地文件发现或自动重试。
+本文与应用工具契约描述已实现接口；生产仍使用此前发布的无工具版本。真实 Write Managed Identity 经 Queue/Pi 调用 DeepSeek V4 Flash 的两个独立会话任务已成功；其中一个任务在 queued 时页面断开，重开后通过原 run 恢复成功而未重发。该证据不覆盖 running 中断、进程恢复、两个 app_id 隔离或缩容故障；完整验收边界见 [管理服务](ADMIN.md#真实写作调用验收)。
 
 请求/响应 JSON 使用 snake_case，写请求必须为 `application/json`，拒绝未知字段；请求体上限 128 KiB。
 响应 `Cache-Control: no-store`，错误为 `{ "error": "code" }`，日志只记录请求 ID、状态与耗时，不记录内容、token 或 provider 原始错误。

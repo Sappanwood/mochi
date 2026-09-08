@@ -2,7 +2,8 @@
 
 ## 当前状态
 
-已实现 Node.js HTTP 服务、配置校验、Entra JWT 认证及 Pi 无工具会话/provider 适配模块。
+已实现 Node.js HTTP 服务、配置校验、Entra JWT 认证及 Pi 无工具会话/provider 适配模块；
+本地新增应用工具运行时、消息持久化及收据核实，尚未发布。
 已补充 `FileCredentials` 与独立 Entra 管理入口。统一业务/管理服务已云发布，Files 认证与数据目录由同一活动实例分别持有。真实 Write Managed Identity 已通过业务模型目录认证，本人管理登录正常；两个独立会话已通过真实 Queue/Pi/DeepSeek V4 Flash 正常执行链路，排队时页面断开后原任务可恢复；实际故障、执行中断与跨应用身份隔离仍待验收。
 
 ## 已实现服务基础
@@ -84,7 +85,7 @@ API key 的持久化保存与 runtime override 必须区分；OAuth 刷新后的
 
 部署交接和维护也可能引入实例重叠，不能用 maxReplicas=1 代替认证所有权协调。
 需要多个执行实例时，明确刷新全过程的串行化和最新凭据读取策略。
-首期不注册任何应用工具，也不向 Agent 开放任意 shell 或模型生成代码执行能力，不部署独立工具执行容器。
+默认不注册应用工具；显式工具会话遵循文末应用工具运行时契约。不向 Agent 开放任意 shell 或模型生成代码执行能力，不部署独立工具执行容器。
 后续应用工具采用服务端明确配置的 allowlist；按已认证应用校验资源归属，模型参数不得扩大命令、目标地址或文件访问范围。
 未来若引入任意代码执行，需要独立于凭据拥有者的执行环境，另行设计权限、文件交付和生命周期。
 认证所有权采用排他 `.owner/` 与实例 ID，无超时抢占；正常关闭等待 mutation 完成，失权或存储故障停止操作。
@@ -171,9 +172,9 @@ Mochi 从 `MOCHI_AUTH_MODE=entra`、`MOCHI_ENTRA_ISSUER`、`MOCHI_ENTRA_AUDIENCE
 
 应用 GitHub Actions 在本仓库 main 通过 OIDC 构建、推送并发布 image digest。CCP 的两个 ACA 资源仅忽略 image 字段，其余配置仍受 Terraform 管理。发布不读取 Terraform state，不调用 CCP workflow；触发与维护边界见 [README](../README.md#github-actions-日常发布)。
 
-## 已接受的应用工具扩展（尚未实现）
+## 应用工具运行时（已实现、尚未发布）
 
-[应用工具契约](APP_TOOLS.md)是双方实施接口：按已认证 app 静态绑定回调地址、反向 Entra audience 和工具 allowlist，
+[应用工具契约](APP_TOOLS.md)是双方接入接口：按已认证 app 静态绑定回调地址、反向 Entra audience 和工具 allowlist，
 会话固定 system prompt/schema/version 快照，run 固定业务 scope 与有限预算。Pi 0.85.1 注册 customTools 并显式传入 tools 名单；
 保留默认无工具，禁用 built-in 工具与本地资源发现，不复制 Agent loop。
 
@@ -182,4 +183,7 @@ Mochi 不决定业务授权，也不让应用接触 provider 凭据。正式业�
 工具成功后先持久收据再继续模型。未知结果经固定认证 endpoint 核实，进程恢复不重放副作用。
 
 第一切片为已有故事取材、独立草稿与最多一章新建，采用独立意图解释的语义误判剩余风险已接受。
-回调生产身份和角色由部署配置提供，本地签名测试身份与真实 provider 联调不代表生产反向 MI 已上线。
+`src/app-tools.ts` 校验静态配置/schema并通过 Managed Identity 调用固定 endpoint；`src/tool-execution.ts` 将快照映射为
+sequential customTools，等待消息、调用和收据持久屏障。`Tasks` 保存完整 Pi 消息、调用、产物、累计 usage 和业务收据，
+终态 POST operations/verify 可更新核实证据而不改变模型终态。Pi agent.subscribe 的 await listener 负责消息屏障。
+回调生产身份和角色由部署配置提供，本地签名测试身份与假 provider 联调不代表生产反向 MI 已上线。

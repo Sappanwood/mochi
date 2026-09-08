@@ -2,6 +2,8 @@ import {
   createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager,
 } from '@earendil-works/pi-coding-agent';
 import { InMemoryModelsStore } from '@earendil-works/pi-ai';
+import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
+import type { PiMessage } from './task-types.ts';
 import type { AuthInteraction, Credential, CredentialStore } from '@earendil-works/pi-ai';
 
 const providers = ['deepseek', 'openai-codex'] as const;
@@ -113,7 +115,7 @@ export type Pi = Awaited<ReturnType<typeof createPi>>;
 
 export async function openConversation(pi: Pi, input: {
   cwd: string; agentDir: string; provider: string; model: string; sessionId?: string; systemPrompt?: string; maxOutputTokens?: number;
-  history?: { role: 'user' | 'assistant'; content: string }[];
+  history?: { role: 'user' | 'assistant'; content: string }[]; piHistory?: PiMessage[]; customTools?: ToolDefinition[];
 }) {
   const model = await pi.requireModel(input.provider, input.model);
   const settingsManager = SettingsManager.inMemory({
@@ -127,7 +129,8 @@ export async function openConversation(pi: Pi, input: {
   });
   await resourceLoader.reload();
   const manager = SessionManager.inMemory(input.cwd);
-  for (const message of input.history ?? []) {
+  for (const message of input.piHistory ?? []) manager.appendMessage(message);
+  for (const message of input.piHistory ? [] : input.history ?? []) {
     if (message.role === 'user') manager.appendMessage({ role: 'user', content: message.content, timestamp: Date.now() });
     else manager.appendMessage({ role: 'assistant', content: [{ type: 'text', text: message.content }],
       api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(), stopReason: 'stop',
@@ -136,10 +139,10 @@ export async function openConversation(pi: Pi, input: {
   }
   const { session } = await createAgentSession({
     cwd: input.cwd, agentDir: input.agentDir, modelRuntime: pi.runtime, model,
-    tools: [], noTools: 'all', customTools: [], resourceLoader, settingsManager,
+    tools: input.customTools?.map(tool => tool.name) ?? [], noTools: 'all', customTools: input.customTools ?? [], resourceLoader, settingsManager,
     sessionManager: manager,
   });
-  if (session.getActiveToolNames().length !== 0) {
+  if (JSON.stringify([...session.getActiveToolNames()].sort()) !== JSON.stringify((input.customTools?.map(tool => tool.name) ?? []).sort())) {
     session.dispose();
     throw new Error('unexpected_tools');
   }

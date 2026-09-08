@@ -55,13 +55,19 @@ export async function agentApi(tasks: Tasks, appId: string, req: IncomingMessage
     return send(200, await tasks.byKey(appId, url.searchParams.get('key')!));
   }
   const session = /^\/v1\/sessions\/([a-f0-9-]{36})(\/(history|runs))?$/.exec(path);
+  if (session && req.method === 'GET' && session[3] === 'history' && url.searchParams.size === 1 && url.searchParams.get('format') === 'pi-v1')
+    return send(200, await tasks.piHistory(appId, session[1]!));
   if (session && !url.search) {
     if (req.method === 'GET' && !session[3]) return send(200, await tasks.session(appId, session[1]!));
     if (req.method === 'GET' && session[3] === 'history') return send(200, await tasks.history(appId, session[1]!));
     if (req.method === 'POST' && session[3] === 'runs') return send(202, await tasks.submit(appId, session[1]!, await body(req)));
   }
-  const run = /^\/v1\/runs\/([a-f0-9-]{36})(\/(cancel|events))?$/.exec(path);
+  const run = /^\/v1\/runs\/([a-f0-9-]{36})(\/(cancel|events|operations\/verify))?$/.exec(path);
   if (run) {
+    if (req.method === 'POST' && run[3] === 'operations/verify' && !url.search) {
+      if (Object.keys(await body(req)).length) throw new TaskError(400, 'invalid_request');
+      return send(200, await tasks.verifyOperations(appId, run[1]!));
+    }
     if (req.method === 'GET' && !run[3] && !url.search) return send(200, await tasks.run(appId, run[1]!));
     if (req.method === 'POST' && run[3] === 'cancel' && !url.search) {
       if (Object.keys(await body(req)).length) throw new TaskError(400, 'invalid_request');

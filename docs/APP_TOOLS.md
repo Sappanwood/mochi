@@ -2,8 +2,9 @@
 
 ## 状态与范围
 
-本契约于 2026-09-08 接受，尚未实现。既有已实现无工具接口见 [Agent API](API.md)；
-运行时扩展实现后须更新此状态，不把本文作为已发布能力。第一消费者为 mochi-write：
+本契约于 2026-09-08 接受。Mochi 运行时已实现工具快照、固定认证回调、有限预算、完整 Pi 历史与收据核实，
+通过真实 Pi AgentSession 和隔离 HTTP/provider 测试，尚未发布。应用侧授权策略和业务工具由消费者接入；
+本文同时固定其必须遵循的契约，不把 Mochi 单仓库测试当成消费者或云端验收。无工具接口见 [Agent API](API.md)。第一消费者为 mochi-write：
 Agent 在已有故事中自主取材、创建独立草稿，并在明确授权下新建最多一章。不覆盖原章节，不修改角色或世界观，
 不创建故事，不开放 shell、文件工具、扩展发现、任意地址访问或多 Agent。真实模型与本地隔离工具联调不等于云回调认证验收。
 
@@ -178,6 +179,10 @@ operation_id 在首次提交 run 前已交给 Mochi 持久保存；即使首次 
 `{protocol_version:1,operation_id,status:"rejected",error:{code}}` 或
 `{protocol_version:1,operation_id,status:"not_found"}`。查询不调用模型，不消耗工具调用或正式写预算，仍有 deadline。
 应用必须检查 operation 所属 app/story；未知返回 not_found，越权拒绝。不接受模型选择查询 URL。
+Mochi 在运行中响应丢失后仅核实原 OP 一次；仍不确定则以 tool_result_unknown 失败，不自动重发业务保存。
+应用可调用 `POST /v1/runs/:id/operations/verify`，JSON body 为 `{}`，核实终态 run 的 unknown OP 并返回更新后的 run。
+该接口逐个查询原 OP，核对 receipt.story_id，保留原 run 终态；其他 app 被拒绝，运行中或无工具 run 返回 409 run_not_terminal。
+not_found 保持 unknown，查询传输失败返回通用 internal_error，原证据不变；没有 unknown 的工具终态查询可重复。
 not_found 仅表示查询时没有收据，不能证明在途 callback 以后不提交；unknown 保持待核实，
 只能在旧请求已结束且应用已封闭/核实该槽后明确重试同 OP，不自动换 OP。
 草稿派发结果不确定保留工具 unknown，但不伪造正式章节 mutation；草稿仅可经其 invocation/task 核对。
@@ -208,7 +213,8 @@ Write 每次 commit 读取当前授权并做确定性校验，不接受 authoriz
 ## Pi 历史、事件与终态
 
 Mochi 保存完整 Pi 0.85.1 user、assistant、toolResult 消息，包括 assistant 的 thinking/toolCall/stopReason/usage、
-以及 toolResult 的 toolCallId/toolName/content/details/isError；只接受 runtime 产生的消息，不开放应用任意历史导入。
+以及 toolResult 的 toolCallId/toolName/content/details/isError；assistant.errorMessage 规范化为 provider_failed，避免泄露上游原始异常。
+只接受 runtime 产生的消息，不开放应用任意历史导入。
 内部记录 `{run_id,sequence,message}`，sequence 在 session 内单调递增。失败/取消/中断的已结束消息也保留审计。
 
 `GET /v1/sessions/:id/history?format=pi-v1` 返回 `{format:"pi-v1",messages:[{run_id,sequence,message}]}`。
@@ -218,7 +224,8 @@ Mochi 保存完整 Pi 0.85.1 user、assistant、toolResult 消息，包括 assis
 
 每次 message_end 落盘。工具适配器必须等待对应 assistant toolCall 与 invocation 持久 barrier 后才进行外部副作用，
 回调结果与 receipt 先落盘再返回 Pi；下一次模型调用前等待全部消息/事件持久队列。
-不能仅订阅不被 await 的事件然后假定已落盘。SessionManager.appendMessage 原样恢复成功历史；不复制 Agent loop。
+实现使用 Pi 0.85.1 agent.subscribe 的被 await listener 保存 message_end；工具 wrapper 等待 invocation/receipt 落盘，
+不用不被 await 的 session.subscribe 推断顺序。SessionManager.appendMessage 原样恢复成功历史；不复制 Agent loop。
 所有实际 assistant usage 按 run 累加；工具 run 新增 usage_complete:boolean，有缺失调用则为 false，历史占位不计。
 
 工具 run 保留现有 status/result/error 字段，并新增 `operations:[{operation_id,status:"committed"|"rejected"|"unknown",receipt?,error?}]`、
@@ -258,5 +265,6 @@ failed/cancelled/interrupted 仍可带 committed 收据；业务保存成功和�
 
 - [Pi 0.85.1 SDK](https://github.com/earendil-works/pi/blob/v0.85.1/packages/coding-agent/docs/sdk.md)：customTools 与显式 tools allowlist；默认无工具发现继续关闭。
 - [Pi 工具类型](https://github.com/earendil-works/pi/blob/v0.85.1/packages/coding-agent/src/core/extensions/types.ts)：execute 的取消信号与 sequential 模式。
+- [Pi Agent](https://github.com/earendil-works/pi/blob/v0.85.1/packages/agent/src/agent.ts)：agent.subscribe listener 被 await，支持消息持久屏障。
 - [Pi Agent loop](https://github.com/earendil-works/pi/blob/v0.85.1/packages/agent/src/agent-loop.ts)：执行前参数校验与错误 toolResult；不替代业务授权。
 - [Microsoft Entra 服务间认证](https://learn.microsoft.com/en-us/azure/container-apps/authentication-entra#daemon-client-application-service-to-service-calls)：app-only 调用与服务身份配置。

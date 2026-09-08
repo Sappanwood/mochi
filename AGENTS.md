@@ -23,7 +23,7 @@ Backlog、Plan、execution、Report、ADR、Research 均由 ProjectOps 管理，
 - 当前阶段以快速迭代为主，验收覆盖主要 happy path；真实使用中出现的 bug 再针对性处理，不为追求工程完备性主动扩展实现与验收范围。
 - 每个项目独立维护代码和部署契约；跨项目需求明确写出对方项目 ID。
 - 不把凭据、OAuth token、运行会话、云状态或私有素材提交到 Git。
-- 当前实现无应用工具；已接受、尚未实现的扩展遵循 `docs/APP_TOOLS.md`。仅支持 DeepSeek API key 和 OpenAI subscription（`openai-codex`）；不得隐式启用默认工具或 OpenAI API key fallback。
+- 默认无应用工具；本地已实现、尚未发布的工具扩展遵循 `docs/APP_TOOLS.md`。仅支持 DeepSeek API key 和 OpenAI subscription（`openai-codex`）；不得隐式启用默认工具或 OpenAI API key fallback。
 - 外部 API、SDK、认证或云资源契约变更前查阅最新官方文档，并固定实际验证版本。
 - 新增收费资源、修改云权限或发布前，准备可审阅结果并按用户实际授权执行。
 - 本地文件操作先明确威胁模型；普通开发按受信任本地 Linux workspace，不默认要求对抗恶意 ancestor 替换。
