@@ -279,5 +279,16 @@ Write `mochi-write--0000005` 接入后，真实 `deepseek-v4-flash` 的独立草
 
 上述证据确认运行时和基础设施配置发布；Write [发布 34206133631](https://github.com/Sappanwood/mochi-write/actions/runs/34206133631)
 已成功上线 revision `mochi-write--0000006`。最终完整真实输入 Terraform 无漂移，Write 原有 MI 读取 metadata
-确认 library 索引转换进度 100%。本人浏览器的新作品流程及旧云会话兼容复验仍因测试 profile 占用未完成，
-不能由 revision ready 或匿名检查推断完成；MOC-004 的业务故障恢复范围也未因此关闭。
+确认 library 索引转换进度 100%。
+
+本人生产登录后，从书架点击新建，使用合成故事完成真实 `deepseek-v4-flash` 云端验收：
+经 library_vocabulary、search_library、read_library 和 initialize_story 建立零章作品，
+再在同一 session 保存第一章及关联设定更新；正文与冻结包 hash 核对通过，来源母版保持不变。
+章节刷新后无重放，第三轮在同一 session 继续生成独立草稿，未追加正式章节。
+旧三工具合成云会话也在原 session 读取原故事设定并成功生成独立草稿，无正式写入收据，原两章完整对象不变。
+
+本轮四个云端任务的模型费用保守上界为 USD 0.0694342；此前已累计 USD 0.68676828（包含失败与重试），
+本次交付累计上界为 USD 0.75620248，未超过授权的 USD 10；这些数值不是账单金额。
+云端实际覆盖先建零章、首章关联更新、同 session 草稿续写及旧会话复验。
+先预览再建立、直接建立并保存的路径由 MWT-019 本地真实模型候选验证覆盖，不计作云端通过；
+MOC-004 的执行中断、跨应用隔离、Queue 故障及业务恢复仍按各自验收范围跟踪。
