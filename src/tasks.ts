@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { TaskStore } from './task-store.ts';
 import { TaskError, defaultSystem, publicRun, terminal } from './task-types.ts';
 import type { Dispatch, ModelInfo, PiMessage, Run, RunInput, StoredRun, StoredSession, Usage } from './task-types.ts';
-import { AppTools } from './app-tools.ts';
+import { AppTools, formalCommit } from './app-tools.ts';
 import type { RunArtifact, RunBudget, RunOperation, RunScope, ToolInvocation } from './tool-types.ts';
 
 export interface ExecutionInput { run: StoredRun; session: StoredSession; history: { role: 'user' | 'assistant'; content: string }[]; piHistory?: PiMessage[] }
@@ -275,7 +275,12 @@ export class Tasks {
     const current = await this.run(appId, runId);
     if (!current.operations || !terminal(current.status)) throw new TaskError(409, 'run_not_terminal');
     for (const operation of current.operations.filter(op => op.status === 'unknown')) {
-      const result = await this.appTools.operation(appId, operation.operation_id, AbortSignal.timeout(15000));
+      const stored = this.#run(appId, runId);
+      const invocation = stored.invocations?.find(item => item.operation_id === operation.operation_id && item.status !== 'prepared');
+      const tool = this.store.sessions.get(stored.session_id)?.tools?.find(item => item.name === invocation?.name);
+      if (!invocation || !tool || tool.effect !== 'write' || !formalCommit(tool, invocation.arguments) || !stored.input.scope) throw new Error('tool_transport_failed');
+      const result = await this.appTools.operation(appId, operation.operation_id, AbortSignal.timeout(15000),
+        { tool, story_id: stored.input.scope.story_id, arguments: invocation.arguments });
       if (result.status === 'committed') {
         if (result.receipt.story_id !== this.#run(appId, runId).input.scope?.story_id) throw new Error('tool_transport_failed');
         await this.#record(appId, runId, { kind: 'operation', operation: { operation_id: result.operation_id, status: 'committed', receipt: result.receipt } });

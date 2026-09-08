@@ -25,6 +25,7 @@ import { AppTools } from '../src/app-tools.ts';
 import { createPi } from '../src/pi.ts';
 import { piExecutor } from '../src/executor.ts';
 import type { CallbackRequest, ToolSnapshot } from '../src/tool-types.ts';
+import { initializationTool, initializationReceipt, initializationRef } from './initialization-fixture.ts';
 const string = { type: 'string', minLength: 1, maxLength: 65536 };
 const chapterTool: ToolSnapshot = { name: 'create_chapter', version: '1', description: 'Create a draft then commit it', effect: 'write', parameters: {
   oneOf: [
@@ -35,13 +36,13 @@ const chapterTool: ToolSnapshot = { name: 'create_chapter', version: '1', descri
 const hash = 'sha256:' + 'a'.repeat(64);
 const scope = { task_id: 'task-1', story_id: 'story-1', source_message_id: 'message-1', operation_id: 'operation-1', authorization_id: 'grant-1' };
 function json(value: unknown) { return new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } }); }
-async function toolFixture(t: TestContext, handler?: (request: CallbackRequest | string) => Promise<Response>) {
+async function toolFixture(t: TestContext, handler?: (request: CallbackRequest | string) => Promise<Response>, initialization: boolean | ToolSnapshot = false) {
   const root = await mkdtemp(join(tmpdir(), 'mochi-tool-loop-'));
   const store = await TaskStore.open(root);
   const credentials = new InMemoryCredentialStore(); await credentials.modify('deepseek', async () => ({ type: 'api_key', key: 'fake-provider-key' }));
   const pi = await createPi(credentials); const model = pi.models().find(m => m.provider === 'deepseek')!;
   const callbacks: CallbackRequest[] = [];
-  const definitions: ToolSnapshot[] = [readTool as ToolSnapshot, chapterTool];
+  const definitions: ToolSnapshot[] = [readTool as ToolSnapshot, chapterTool, ...(initialization ? [initialization === true ? initializationTool : initialization] : [])];
   const appTools = new AppTools({ 'app-a': { endpoint: 'https://app.invalid/tools', operations_endpoint: 'https://app.invalid/operations', audience: 'api://write',
     tools: definitions.map(({ name, version, effect }) => ({ name, version, effect })) } }, {
     token: async () => 'test-service-token', fetch: async (url, init) => {
@@ -291,4 +292,168 @@ test('HTTP exposes opt-in Pi history and terminal operation verification with ap
   assert.equal(verify.status, 200); assert.equal((await verify.json()).status, 'succeeded');
   const forbidden = await fetch(`${base}/v1/sessions/${f.session.session_id}/history?format=pi-v1`, { headers: { authorization: 'Bearer app-b' } });
   assert.equal(forbidden.status, 403);
+});
+
+test('initialization draft artifacts and both commits survive model failure with unchanged session snapshot', async t => {
+  let includeChapter = false;
+  const f = await toolFixture(t, async request => {
+    assert.notEqual(typeof request, 'string');
+    const req = request as CallbackRequest;
+    const receipt = { ...initializationReceipt(includeChapter), operation_id: req.scope.operation_id, story_id: req.scope.story_id };
+    return json({ protocol_version: 1, invocation_id: req.invocation_id, outcome: 'ok',
+      data: req.arguments.mode === 'draft' ? { ...initializationRef, title: 'Story', artifact_kind: 'story_initialization', includes_chapter: includeChapter, assets: [] } : {},
+      ...(req.arguments.mode === 'commit' ? { receipt } : {}) });
+  }, true);
+  const snapshot = structuredClone(f.session.tools); const snapshotHash = f.session.tool_snapshot_hash;
+  for (const chapter of [false, true]) {
+    includeChapter = chapter;
+    respond(t, f.pi, [call('draft', 'initialize_story', { mode: 'draft', title: 'Story', assets: [], ...(chapter ? { chapter: { title: 'First', body: 'Body' } } : {}) }),
+      call('commit', 'initialize_story', { mode: 'commit', ...initializationRef }), 'length'], (context, turn) => {
+      if (turn === 0) {
+        const projected = JSON.parse(context).tools.find((tool: ToolSnapshot) => tool.name === 'initialize_story');
+        assert.deepEqual(projected.parameters, { ...initializationTool.parameters, type: 'object' });
+      }
+    });
+    const run = await f.submit({ idempotency_key: 'initialization-' + chapter, scope: { ...scope, task_id: 'task-' + chapter, operation_id: 'op-' + chapter } });
+    await f.tasks.execute(run.run_id, f.executor);
+    const result = await f.tasks.run('app-a', run.run_id);
+    assert.equal(result.error, 'incomplete_output');
+    assert.deepEqual(result.artifacts, [{ ...initializationRef, title: 'Story', artifact_kind: 'story_initialization', includes_chapter: chapter }]);
+    assert.equal(result.operations?.[0]?.status, 'committed');
+    assert.equal((result.operations?.[0]?.receipt as { kind?: string }).kind, chapter ? 'first_chapter_saved' : 'story_initialized');
+  }
+  assert.deepEqual(f.store.sessions.get(f.session.session_id)?.tools, snapshot);
+  assert.equal(f.store.sessions.get(f.session.session_id)?.tool_snapshot_hash, snapshotHash);
+});
+
+test('initialization unknown OP verification rejects legacy receipts and a substituted exact draft', async t => {
+  let answer: unknown;
+  let writes = 0;
+  const good = { ...initializationReceipt(true), operation_id: scope.operation_id, story_id: scope.story_id };
+  const f = await toolFixture(t, async request => {
+    if (typeof request !== 'string') { writes++; throw new Error('lost after commit'); }
+    return json(answer ? { protocol_version: 1, operation_id: scope.operation_id, status: 'committed', receipt: answer }
+      : { protocol_version: 1, operation_id: scope.operation_id, status: 'not_found' });
+  }, true);
+  respond(t, f.pi, [call('commit', 'initialize_story', { mode: 'commit', ...initializationRef })]);
+  const run = await f.submit(); await f.tasks.execute(run.run_id, f.executor);
+  assert.equal((await f.tasks.run('app-a', run.run_id)).error, 'tool_result_unknown');
+  for (const wrong of [{ operation_id: scope.operation_id, story_id: scope.story_id, status: 'committed', chapter_id: 'chapter', revision: '1', content_hash: hash },
+    { ...good, draft_id: 'replacement' }, { ...good, draft_revision: '2' }, { ...good, draft_hash: 'sha256:' + 'b'.repeat(64) }, { ...good, story_id: 'other' }]) {
+    answer = wrong; await assert.rejects(f.tasks.verifyOperations('app-a', run.run_id), /tool_transport_failed/);
+    assert.equal((await f.tasks.run('app-a', run.run_id)).operations?.[0]?.status, 'unknown');
+  }
+  answer = good;
+  const verified = await f.tasks.verifyOperations('app-a', run.run_id);
+  assert.equal(verified.status, 'failed'); assert.deepEqual(verified.operations?.[0]?.receipt, good); assert.equal(writes, 1);
+});
+
+test('initialization response loss recovers its receipt and refuses a second tool in the same write slot', async t => {
+  let writes = 0;
+  const receipt = { ...initializationReceipt(), operation_id: scope.operation_id, story_id: scope.story_id };
+  const f = await toolFixture(t, async request => {
+    if (typeof request === 'string') return json({ protocol_version: 1, operation_id: scope.operation_id, status: 'committed', receipt });
+    writes++; throw new Error('lost response');
+  }, true);
+  respond(t, f.pi, [call('initialize', 'initialize_story', { mode: 'commit', ...initializationRef }),
+    call('second', 'create_chapter', { mode: 'commit', draft_id: 'chapter-draft', draft_revision: '1', draft_hash: hash })]);
+  const run = await f.submit(); await f.tasks.execute(run.run_id, f.executor);
+  const result = await f.tasks.run('app-a', run.run_id);
+  assert.equal(result.error, 'write_operation_limit'); assert.deepEqual(result.operations?.[0]?.receipt, receipt); assert.equal(writes, 1);
+});
+
+test('unrecognized registered write commits never bypass a zero formal write budget', async t => {
+  const f = await toolFixture(t, async request => {
+    assert.notEqual(typeof request, 'string');
+    return json({ protocol_version: 1, invocation_id: (request as CallbackRequest).invocation_id, outcome: 'ok', data: {} });
+  }, { ...chapterTool, name: 'unrecognized_write' });
+  respond(t, f.pi, [call('unknown', 'unrecognized_write', { mode: 'commit', ...initializationRef })]);
+  const run = await f.submit({ budget: { max_write_operations: 0 } }); await f.tasks.execute(run.run_id, f.executor);
+  assert.equal(f.callbacks.length, 0);
+  assert.equal((await f.tasks.run('app-a', run.run_id)).status, 'failed');
+});
+
+test('initialization drafts consume no formal write slot and malformed artifact metadata never becomes a draft', async t => {
+  let malformed = false;
+  const f = await toolFixture(t, async request => {
+    const req = request as CallbackRequest;
+    return json({ protocol_version: 1, invocation_id: req.invocation_id, outcome: 'ok', data: {
+      ...initializationRef, title: 'Story', artifact_kind: 'story_initialization', includes_chapter: malformed } });
+  }, true);
+  respond(t, f.pi, [call('draft', 'initialize_story', { mode: 'draft', title: 'Story', assets: [] }),
+    call('commit', 'initialize_story', { mode: 'commit', ...initializationRef })]);
+  const run = await f.submit({ budget: { max_write_operations: 0 } }); await f.tasks.execute(run.run_id, f.executor);
+  assert.equal(f.callbacks.length, 1);
+  const result = await f.tasks.run('app-a', run.run_id);
+  assert.equal(result.artifacts?.length, 1); assert.equal(result.error, 'write_operation_limit'); assert.deepEqual(result.operations, []);
+  malformed = true;
+  respond(t, f.pi, [call('draft', 'initialize_story', { mode: 'draft', title: 'Story', assets: [] })]);
+  const next = await f.submit({ idempotency_key: 'invalid-artifact' }); await f.tasks.execute(next.run_id, f.executor);
+  const invalid = await f.tasks.run('app-a', next.run_id);
+  assert.equal(invalid.error, 'tool_transport_failed'); assert.deepEqual(invalid.artifacts, []); assert.deepEqual(invalid.operations, []);
+});
+
+test('interrupted initialization verifies from persisted tool snapshot over HTTP without replay', async t => {
+  const receipt = { ...initializationReceipt(), operation_id: scope.operation_id, story_id: scope.story_id };
+  const f = await toolFixture(t, async request => {
+    assert.equal(typeof request, 'string');
+    return json({ protocol_version: 1, operation_id: scope.operation_id, status: 'committed', receipt });
+  }, true);
+  const run = await f.submit(); const saved = structuredClone(f.store.runs.get(run.run_id)!); saved.status = 'running';
+  saved.invocations = [{ invocation_id: 'pending', tool_call_id: 'pending-call', name: 'initialize_story', operation_id: scope.operation_id,
+    arguments: { mode: 'commit', ...initializationRef }, status: 'dispatched' }];
+  await f.store.saveRun(saved); await f.store.close();
+  const restored = await TaskStore.open(f.store.root); t.after(() => restored.close());
+  const tasks = new Tasks(restored, { send: async () => { throw new Error('unexpected dispatch'); } }, f.pi.models, f.appTools);
+  await tasks.recover();
+  const server = createServer({ tasks, authenticate: async () => ({ appId: 'app-a' }), isReady: () => true, log: () => {} });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }));
+  try {
+    const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/runs/${run.run_id}/operations/verify`,
+      { method: 'POST', headers: { authorization: 'Bearer app-a', 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.status, 'interrupted'); assert.deepEqual(result.operations[0].receipt, receipt); assert.equal(f.callbacks.length, 0);
+  } finally { await tasks.close(); await restored.close(); }
+});
+
+test('same lifecycle session saves first chapter then uses unchanged create_chapter v1 in its next authorized run', async t => {
+  const f = await toolFixture(t, async request => {
+    const req = request as CallbackRequest;
+    assert.equal(req.app_id, 'app-a'); assert.equal(req.task_id, req.scope.source_message_id.replace('message', 'task'));
+    const base = { operation_id: req.scope.operation_id, status: 'committed', story_id: req.scope.story_id };
+    const receipt = req.tool.name === 'initialize_story' ? { ...initializationReceipt(true), ...base }
+      : { ...base, chapter_id: 'chapter-2', revision: '1', content_hash: hash };
+    return json({ protocol_version: 1, invocation_id: req.invocation_id, outcome: 'ok', data: {}, receipt });
+  }, true);
+  respond(t, f.pi, [call('first', 'initialize_story', { mode: 'commit', ...initializationRef }), [{ type: 'text', text: 'First chapter saved.' }]]);
+  const first = await f.submit(); await f.tasks.execute(first.run_id, f.executor);
+  assert.equal((await f.tasks.run('app-a', first.run_id)).status, 'succeeded');
+  respond(t, f.pi, [call('next', 'create_chapter', { mode: 'commit', draft_id: 'next-draft', draft_revision: '1', draft_hash: hash }), [{ type: 'text', text: 'Second chapter saved.' }]], context => {
+    assert.ok(context.includes('first_chapter_saved'));
+  });
+  const next = await f.submit({ idempotency_key: 'next-chapter', scope: { ...scope, task_id: 'task-2', source_message_id: 'message-2', operation_id: 'operation-2' } });
+  await f.tasks.execute(next.run_id, f.executor);
+  const result = await f.tasks.run('app-a', next.run_id);
+  assert.equal(result.status, 'succeeded'); assert.equal(result.operations?.[0]?.receipt && 'kind' in result.operations[0].receipt, false);
+  assert.equal(f.callbacks.length, 2); assert.ok(f.callbacks.every(req => req.session_id === f.session.session_id));
+  assert.deepEqual(f.callbacks.map(req => req.run_id), [first.run_id, next.run_id]);
+});
+
+test('cancelled initialization retains unknown until exact receipt verification and never rolls back prior work', async t => {
+  let enter!: () => void; let release!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; }); const wait = new Promise<void>(resolve => { release = resolve; });
+  const receipt = { ...initializationReceipt(), operation_id: scope.operation_id, story_id: scope.story_id };
+  const f = await toolFixture(t, async request => {
+    if (typeof request === 'string') return json({ protocol_version: 1, operation_id: scope.operation_id, status: 'committed', receipt });
+    enter(); await wait;
+    return json({ protocol_version: 1, invocation_id: request.invocation_id, outcome: 'ok', data: {}, receipt });
+  }, true);
+  respond(t, f.pi, [call('initialize', 'initialize_story', { mode: 'commit', ...initializationRef })]);
+  const run = await f.submit(); const work = f.tasks.execute(run.run_id, f.executor); await entered;
+  await f.tasks.cancel('app-a', run.run_id); release(); await work;
+  assert.equal((await f.tasks.run('app-a', run.run_id)).operations?.[0]?.status, 'unknown');
+  const verified = await f.tasks.verifyOperations('app-a', run.run_id);
+  assert.equal(verified.status, 'cancelled'); assert.deepEqual(verified.operations?.[0]?.receipt, receipt); assert.equal(f.callbacks.length, 1);
 });

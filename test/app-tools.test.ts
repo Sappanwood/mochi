@@ -4,6 +4,7 @@ import { AppTools } from '../src/app-tools.ts';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import type { CallbackRequest, ToolBinding, ToolSnapshot } from '../src/tool-types.ts';
+import { initializationTool, initializationReceipt, initializationRef } from './initialization-fixture.ts';
 
 const read: ToolSnapshot = { name: 'read_asset', version: '1', effect: 'read', description: 'Read exact story revision',
   parameters: { type: 'object', properties: { asset_id: { type: 'string', minLength: 1, maxLength: 128 }, revision: { type: 'string', minLength: 1, maxLength: 128 } }, required: ['asset_id', 'revision'], additionalProperties: false } };
@@ -110,4 +111,52 @@ test('tool schema rejects unknown keywords and arguments rather than trusting ge
   assert.throws(() => tools.validateArguments(read, { asset_id: 'a' }), /invalid_arguments/);
   assert.throws(() => tools.validateArguments(read, { asset_id: 'a', revision: '1', authorized: true }), /invalid_arguments/);
   assert.doesNotThrow(() => tools.validateArguments(read, { asset_id: 'a', revision: '1' }));
+});
+
+test('bounded array schemas accept exact boundaries and reject unbounded, tuple and nested invalid values', () => {
+  const tools = new AppTools({ write: { ...binding, tools: [{ name: initializationTool.name, version: '1', effect: 'write' }] } });
+  assert.ok(tools.validate('write', [initializationTool]));
+  const withArray = (array: Record<string, unknown>): ToolSnapshot => ({ ...initializationTool, parameters: {
+    type: 'object', properties: { values: array }, required: ['values'], additionalProperties: false } });
+  const bounded = { type: 'array', items: { type: 'string', maxLength: 3 }, minItems: 1, maxItems: 16 };
+  const tool = withArray(bounded);
+  assert.doesNotThrow(() => tools.validateArguments(tool, { values: Array(16).fill('中') }));
+  for (const values of [[], Array(17).fill('a'), [1], ['long'], {}]) {
+    assert.throws(() => tools.validateArguments(tool, { values }), /invalid_arguments/);
+  }
+  for (const array of [{ ...bounded, maxItems: undefined }, { ...bounded, maxItems: 17 }, { ...bounded, minItems: 17 },
+    { ...bounded, minItems: -1 }, { ...bounded, maxItems: 1.5 }, { ...bounded, items: [bounded.items] }, { ...bounded, uniqueItems: true }]) {
+    assert.throws(() => tools.validate('write', [withArray(array)]), /invalid_request/);
+  }
+});
+
+test('initialization receipt union accepts both outcomes and binds exact tool version, story, OP and draft', async () => {
+  let receipt: unknown;
+  const tools = new AppTools({ write: { ...binding, tools: [{ name: initializationTool.name, version: '1', effect: 'write' },
+    { name: 'create_chapter', version: '1', effect: 'write' }] } }, {
+    token: async () => 'token', fetch: async () => new Response(JSON.stringify({ protocol_version: 1, invocation_id: 'invocation', outcome: 'ok', data: {}, receipt }), { headers: { 'content-type': 'application/json' } }),
+  });
+  const req = { ...request(), tool: { name: 'initialize_story', version: '1' }, arguments: { mode: 'commit', ...initializationRef } };
+  const signal = new AbortController().signal;
+  for (const chapter of [false, true]) {
+    receipt = initializationReceipt(chapter);
+    assert.equal((await tools.invoke('write', req, signal)).outcome, 'ok');
+  }
+  const valid = initializationReceipt();
+  for (const bad of [committed, { ...valid, chapter: initializationReceipt(true).chapter },
+    { ...valid, kind: 'first_chapter_saved' }, { ...valid, kind: 'arbitrary_write' }, { ...valid, operation_id: 'other' },
+    { ...valid, story_id: 'other' }, { ...valid, draft_id: 'other' }, { ...valid, draft_revision: '2' },
+    { ...valid, draft_hash: 'sha256:' + 'b'.repeat(64) }, { ...valid, assets: Array(9).fill(valid.assets[0]) },
+    { ...valid, content_hash: 'sha256:' + 'b'.repeat(64) },
+    { ...valid, assets: [{ ...valid.assets[0], kind: 'chapter' }] }, { ...valid, assets: [{ ...valid.assets[0], extra: true }] },
+    { ...valid, assets: [valid.assets[0], valid.assets[0]] }, { ...valid, unknown: true }]) {
+    receipt = bad; await assert.rejects(tools.invoke('write', req, signal), /tool_transport_failed/);
+  }
+  receipt = valid;
+  await assert.rejects(tools.invoke('write', { ...req, tool: { name: 'create_chapter', version: '1' } }, signal), /tool_transport_failed/);
+  await assert.rejects(tools.invoke('write', { ...req, arguments: { mode: 'draft' } }, signal), /tool_transport_failed/);
+  const future = new AppTools({ write: { ...binding, tools: [{ name: 'initialize_story', version: '2', effect: 'write' }] } }, {
+    token: async () => 'token', fetch: async () => new Response(JSON.stringify({ protocol_version: 1, invocation_id: 'invocation', outcome: 'ok', data: {}, receipt }), { headers: { 'content-type': 'application/json' } }),
+  });
+  await assert.rejects(future.invoke('write', { ...req, tool: { name: 'initialize_story', version: '2' } }, signal), /tool_transport_failed/);
 });

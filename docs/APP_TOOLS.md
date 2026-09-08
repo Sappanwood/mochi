@@ -5,8 +5,9 @@
 本契约于 2026-09-08 接受。Mochi 运行时已实现工具快照、固定认证回调、有限预算、完整 Pi 历史与收据核实，
 通过真实 Pi AgentSession 和隔离 HTTP/provider 测试，并于 2026-09-08 发布到云端。应用侧授权策略和业务工具由消费者接入；
 本文同时固定其必须遵循的契约，不把 Mochi 单仓库测试当成消费者或云端验收。无工具接口见 [Agent API](API.md)。第一消费者为 mochi-write：
-Agent 在已有故事中自主取材、创建独立草稿，并在明确授权下新建最多一章。不覆盖原章节，不修改角色或世界观，
-不创建故事，不开放 shell、文件工具、扩展发现、任意地址访问或多 Agent。真实模型与本地隔离工具联调不等于云回调认证验收。
+既有 create_chapter v1 支持在故事中取材、创建草稿和新建一章。新增 initialize_story v1 的运行时支持已在本地验证，
+消费者业务接入和云发布另行验收；允许仅作品资料初始化或首章关联保存，具体范围由 Write 授权和原子事务校验。
+不开放 shell、文件工具、扩展发现、任意地址访问或多 Agent。真实模型与本地隔离工具联调不等于云回调认证验收。
 
 Mochi 拥有模型凭据、运行会话、工具传输和执行证据；应用拥有用户意图解释策略、授权、草稿、正式章节和业务收据。
 自然语言授权采用独立无工具意图解释及后端有限授权，接受语义分类可能误判的剩余风险；
@@ -44,8 +45,10 @@ Application-only `Write.Tools.Invoke` 授予、两端身份 allowlist 与上述�
 ```
 
 最多 16 个唯一工具，定义总共最多 32 KiB；description 最多 2048 UTF-8 字节。
-parameters 只接受 object、string、integer、boolean、enum、properties、required、additionalProperties:false、
-minLength/maxLength、minimum/maximum 和顶层 oneOf；oneOf 分支必须有唯一 mode enum，禁止 $ref 和未支持关键字。
+parameters 只接受 object、array、string、integer、boolean、enum、properties、required、additionalProperties:false、
+minLength/maxLength、minimum/maximum 和顶层 oneOf；array 仅支持 items/minItems/maxItems，maxItems 必填且为 0–16 的整数，
+minItems 可省略（默认 0），不得超过 maxItems；items 递归遵守相同 schema、最大深度 8 和定义字节预算，不支持 tuple 或任意 schema。
+oneOf 分支必须有唯一 mode enum，禁止 $ref 和未支持关键字。
 所有 object 禁止额外属性；字符串 schema 长度按 Unicode 字符数，整个协议另检查 UTF-8 字节大小。
 Mochi 及应用均校验参数，不能用模型受限采样替代后端校验。
 
@@ -81,8 +84,10 @@ scope 的 ID 均为 1–128 UTF-8 字节的不透明字符串，仅 authorizatio
 | callback 请求 / 响应 | 128 / 64 KiB | 检查真实 UTF-8 body，不信任 Content-Length；超限失败，不截断正文 |
 | 草稿正文 | 48 KiB | 正文原始 UTF-8，title 最多 512 UTF-8 字节 |
 
-create_chapter 的 effect:write 表示持久副作用；mode:draft 不消耗正式写入槽，只消耗工具与产物预算。
-mode:commit 没有授权仍拒绝；预算绝不授予权限。所有工具 sequential 执行。
+create_chapter v1 和 initialize_story v1 的 effect:write 表示持久副作用；mode:draft 不消耗正式写入槽，只消耗工具与产物预算。
+mode:commit 没有授权仍由应用拒绝；预算绝不授予权限。运行时只支持这两个 v1 工具的正式 commit，
+其他已登记 write 工具的 commit 在 callback 前拒绝。首次正式派发绑定工具版本与 draft ID/revision/hash，
+同 OP 同引用可幂等重试，改变工具或引用返回 write_operation_limit；一轮不能先建作品再保存另一章。所有工具 sequential 执行。
 每次下一个模型调用前，等待持久事件队列并检查完整 prompt、历史、schema、工具结果、消息开销及 max_output_tokens
 的上下文预算；沿用 UTF-8 保守准入估计，不自动 compaction、裁剪或重试。max_output_tokens 是单次模型上限。
 超限停止后续派发，分别记录 model_call_limit、tool_call_limit、write_operation_limit、run_timeout 或 context_budget_exceeded。
@@ -120,7 +125,7 @@ HTTP 401/403、非 JSON、版本或 invocation 不匹配、网络异常、超限
 返回给 Agent 的工具结果为 text 类型的该业务 JSON，details 保留结构化副本；工具错误对应 isError。
 错误仅返回稳定 code，不透传数据库、provider、HTTP 原文或 token。
 
-## 三个逻辑工具
+## 既有逻辑工具
 
 ### search_assets v1（read）
 
@@ -173,6 +178,59 @@ commit 不接收 body/title、chapter_id、operation_id 或 authorized。Write �
 未知 OP 不得换 key、换 task 或换 tool_call_id 绕过。draft 缺失/变化返回 draft_conflict，目标章节已占用返回 operation_conflict。
 同故事分区原子提交新章节、版本、业务收据及授权槽消费；不能先写正文再另写收据。
 
+## 新会话的作品初始化工具
+
+新生命周期 session 可显式登记七个 v1 工具：search_assets、read_asset、create_chapter、library_vocabulary、search_library、read_library、initialize_story。
+前三个及旧会话快照原样保留；Mochi 不自动迁移或为旧 session 添加工具。后三个 read 工具由 Write 实施词表 → 有界元数据筛选 → 精确全文读取，
+Mochi 只传输经 schema 校验的参数和有界结果，不读取私人资产库或赋予跨故事权限。每轮使用应用持久生成的 task/story/source_message/OP/authorization scope，
+callback 的 app/session/run/task 与 scope 始终由 runtime 注入，模型参数不得指定或替换。
+
+### initialize_story v1（write）
+
+根 oneOf 两个 mode 分支，所有 object 禁止额外字段：
+
+```ts
+type DraftInput = {
+  mode: "draft"; title: string; body?: string;
+  assets: { kind: "setting" | "outline" | "snapshot"; title?: string; body?: string;
+    asset_id?: string; base_revision?: string; source_id?: string; source_version?: number; source_hash?: string }[];
+  chapter?: { title: string; body: string };
+};
+type CommitInput = { mode: "commit"; draft_id: string; draft_revision: string; draft_hash: string };
+```
+
+Write 检查生成资料、更新现有初始资料和复制已读母版三个互斥来源模式，固定完整 Content、基础版本和来源，保存不可变草稿。
+至多 8 个资料、1 个 setting 和 1 个 outline；资料/描述每项 8 KiB，首章正文 48 KiB，title 至多 200 Unicode 字符及 512 UTF-8 字节。
+初始化参数 JSON 至多 120 KiB；完整 callback 仍至多 128 KiB。应用展开包 JSON 至多 256 KiB，不通过工具返回全文包。
+草稿 response.data 为 `{draft_id,draft_revision,draft_hash,title,artifact_kind:"story_initialization",includes_chapter}` 及有界资料摘要。
+Mochi 校验精确引用、类型和 includes_chapter 与输入是否含 chapter 一致，并保存 artifact 与事件；完整包由应用本人 API 阅读。
+read_asset 读取初始化草稿时也只返回有界清单/摘要，仍受 64 KiB 完整 callback 响应上限约束。
+
+无 chapter 候选可建立零章作品；含 chapter 候选可建立并保存首章，或为已建但未写章的作品保存首章及关联初始资料更新。
+这些业务状态和授权由 Write 校验并以单分区事务提交；已有章后不能用此工具作通用多资产修改。
+只建立作品后需下一轮新授权才能保存首章；首章后原 session 可继续 create_chapter v1。用户自行管理换 session 与上下文，
+运行时沿用预算和超限停止，不增加自动摘要、压缩、工具快照变更或第二正式 OP。
+
+### 初始化收据
+
+initialize_story v1 commit 必须返回以下严格 union；旧无 kind 的 chapter receipt 只属于 create_chapter v1：
+
+```ts
+type InitializationReceipt = {
+  operation_id: string; status: "committed"; story_id: string;
+  kind: "story_initialized" | "first_chapter_saved";
+  revision: string; content_hash: string;
+  draft_id: string; draft_revision: string; draft_hash: string;
+  assets: { asset_id: string; kind: "setting" | "outline" | "snapshot"; revision: string; content_hash: string }[];
+  chapter?: { chapter_id: string; revision: string; content_hash: string };
+};
+```
+
+story_initialized 禁止 chapter；first_chapter_saved 必须含 chapter。所有对象拒绝未知字段，ID/revision 为 1–128 UTF-8 字节，
+hash 为 sha256 加 64 位小写 hex；content_hash 等于 draft_hash（规范初始化包 hash）。assets 最多 8 个且 ID 唯一，setting/outline 各最多一个。
+同步 callback 和原 OP 核实都绑定 initialize_story v1、原 story/OP 和 draft_id/revision/hash，不能用章节收据或另一草稿替代。
+草稿、read 或任意其他工具不得返回正式 receipt。取消、模型失败和进程中断保留已提交作品/首章的真实收据；unknown 仍查询原 OP，不重发业务写入。
+
 ## 收据核实、取消与进程恢复
 
 operation_id 在首次提交 run 前已交给 Mochi 持久保存；即使首次 callback 响应丢失也能核实。
@@ -187,7 +245,8 @@ operation_id 在首次提交 run 前已交给 Mochi 持久保存；即使首次 
 应用必须检查 operation 所属 app/story；未知返回 not_found，越权拒绝。不接受模型选择查询 URL。
 Mochi 在运行中响应丢失后仅核实原 OP 一次；仍不确定则以 tool_result_unknown 失败，不自动重发业务保存。
 应用可调用 `POST /v1/runs/:id/operations/verify`，JSON body 为 `{}`，核实终态 run 的 unknown OP 并返回更新后的 run。
-该接口逐个查询原 OP，核对 receipt.story_id，保留原 run 终态；其他 app 被拒绝，运行中或无工具 run 返回 409 run_not_terminal。
+该接口逐个查询原 OP，从已持久派发记录及原 session 不可变快照取得工具版本和参数，
+核对 receipt 的工具类型、story 和初始化精确草稿引用，保留原 run 终态；其他 app 被拒绝，运行中或无工具 run 返回 409 run_not_terminal。
 not_found 保持 unknown，查询传输失败返回通用 internal_error，原证据不变；没有 unknown 的工具终态查询可重复。
 not_found 仅表示查询时没有收据，不能证明在途 callback 以后不提交；unknown 保持待核实，
 只能在旧请求已结束且应用已封闭/核实该槽后明确重试同 OP，不自动换 OP。
@@ -235,7 +294,8 @@ Mochi 保存完整 Pi 0.85.1 user、assistant、toolResult 消息，包括 assis
 所有实际 assistant usage 按 run 累加；工具 run 新增 usage_complete:boolean，有缺失调用则为 false，历史占位不计。
 
 工具 run 保留现有 status/result/error 字段，并新增 `operations:[{operation_id,status:"committed"|"rejected"|"unknown",receipt?,error?}]`、
-`artifacts:[{draft_id,draft_revision,draft_hash,title}]`、usage_complete。无工具 run 保持原固定形状。
+`artifacts:[{draft_id,draft_revision,draft_hash,title,artifact_kind?,includes_chapter?}]`、usage_complete。
+仅 initialize_story v1 草稿增加 artifact_kind:story_initialization 和 includes_chapter:boolean；旧草稿不补字段。无工具 run 保持原固定形状。
 succeeded 要求最后完整 assistant stop 且无待核实正式 mutation；否则 failed/tool_result_unknown。
 failed/cancelled/interrupted 仍可带 committed 收据；业务保存成功和模型执行成功分别呈现。
 
@@ -246,7 +306,7 @@ failed/cancelled/interrupted 仍可带 committed 收据；业务保存成功和�
 | message | `{sequence,message}`，只在完整 message_end 后发出 |
 | tool_started | `{invocation_id,tool_call_id,name}`，已持久 dispatched |
 | tool_finished | `{invocation_id,tool_call_id,name,status,error?}` |
-| artifact_created | `{draft_id,draft_revision,draft_hash,title}` |
+| artifact_created | `{draft_id,draft_revision,draft_hash,title}`，初始化草稿另带 `artifact_kind:story_initialization,includes_chapter:boolean` |
 | operation_updated | `{operation_id,status,receipt?,error?}` |
 
 旧无工具 session 不产生新事件。text_delta 可包含中间讨论，不能作为最终草稿或“已保存”依据；

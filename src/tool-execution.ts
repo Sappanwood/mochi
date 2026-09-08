@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { PiMessage, Usage } from './task-types.ts';
 import type { ExecutionInput, RecordExecution } from './tasks.ts';
-import type { AppTools } from './app-tools.ts';
+import { formalCommit, type AppTools } from './app-tools.ts';
 import type { CallbackRequest, RunArtifact, ToolInvocation } from './tool-types.ts';
 
 export function toolExecution(input: ExecutionInput, appTools: AppTools, record: RecordExecution, signal: AbortSignal,
   stop: (error: Error) => void) {
   const { run, session } = input;
   const scope = run.input.scope!; const budget = run.input.budget!;
-  let calls = 0; let responses = 0; let toolCalls = 0; let writeUsed = false;
+  let calls = 0; let responses = 0; let toolCalls = 0; let writeIdentity: string | undefined;
   let usage: Usage | null = null; let usageComplete = true;
   const fail = (code: string): never => { const error = new Error(code); stop(error); throw error; };
   const customTools: ToolDefinition[] = session.tools!.map(tool => ({
@@ -20,9 +20,11 @@ export function toolExecution(input: ExecutionInput, appTools: AppTools, record:
       appTools.validateArguments(tool, args);
       const arguments_ = args as Record<string, unknown>;
       const commit = tool.effect === 'write' && arguments_.mode === 'commit';
-      if (commit && !writeUsed) {
-        if (budget.max_write_operations < 1) fail('write_operation_limit');
-        writeUsed = true;
+      if (commit && !formalCommit(tool, arguments_)) fail('tool_version_unavailable');
+      if (commit) {
+        const identity = JSON.stringify([tool.name, tool.version, arguments_.draft_id, arguments_.draft_revision, arguments_.draft_hash]);
+        if (budget.max_write_operations < 1 || (writeIdentity !== undefined && writeIdentity !== identity)) fail('write_operation_limit');
+        writeIdentity = identity;
       }
       const invocation: ToolInvocation = { invocation_id: randomUUID(), tool_call_id: toolCallId,
         name: tool.name, status: 'prepared', arguments: structuredClone(arguments_), ...(commit ? { operation_id: scope.operation_id } : {}) };
@@ -50,7 +52,8 @@ export function toolExecution(input: ExecutionInput, appTools: AppTools, record:
         if (tool.effect === 'write' && arguments_.mode === 'draft') {
           const data = response.data;
           if (!['draft_id', 'draft_revision', 'draft_hash', 'title'].every(key => typeof data[key] === 'string')) throw new Error('tool_transport_failed');
-          await record({ kind: 'artifact', artifact: { draft_id: data.draft_id, draft_revision: data.draft_revision, draft_hash: data.draft_hash, title: data.title } as RunArtifact });
+          await record({ kind: 'artifact', artifact: { draft_id: data.draft_id, draft_revision: data.draft_revision, draft_hash: data.draft_hash, title: data.title,
+            ...(tool.name === 'initialize_story' && tool.version === '1' ? { artifact_kind: data.artifact_kind, includes_chapter: data.includes_chapter } : {}) } as RunArtifact });
         }
         return { content: [{ type: 'text', text: JSON.stringify(response) }], details: response };
       } catch (error) {
@@ -60,7 +63,8 @@ export function toolExecution(input: ExecutionInput, appTools: AppTools, record:
         if (commit) {
           // A lost response never grants a new business operation or proves no write occurred.
           try {
-            const result = await appTools.operation(run.app_id, scope.operation_id, AbortSignal.any([signal, AbortSignal.timeout(15000)]));
+            const result = await appTools.operation(run.app_id, scope.operation_id, AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+              { tool, story_id: scope.story_id, arguments: arguments_ });
             if (result.status === 'committed' && result.receipt.story_id === scope.story_id) {
               await record({ kind: 'operation', operation: { operation_id: scope.operation_id, status: 'committed', receipt: result.receipt } });
               return { content: [{ type: 'text', text: JSON.stringify({ outcome: 'ok', receipt: result.receipt, recovered: true }) }], details: result };

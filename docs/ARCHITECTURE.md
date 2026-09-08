@@ -190,3 +190,13 @@ sequential customTools，等待消息、调用和收据持久屏障。`Tasks` �
 终态 POST operations/verify 可更新核实证据而不改变模型终态。Pi agent.subscribe 的 await listener 负责消息屏障。
 回调生产身份和角色由 CCP 配置，2026-09-08 已完成反向 MI 角色与两端环境配置部署。
 运行版本、真实业务验收及其边界见 [创作工具云发布](ADMIN.md#创作工具云发布)。
+
+
+### 同会话作品初始化
+
+新增 initialize_story v1 支持带有界数组的根 oneOf 参数，canonical 快照/hash 仍不可变；provider 投影继续仅补根 type:object。
+Write 拥有预留 story、完整初始化包、人物来源版本、授权和单分区业务事务；Mochi 持久区分初始化草稿和普通章节草稿，
+校验 story_initialized / first_chapter_saved 收据及精确包引用，不通过伪造 chapter_id 表示零章作品。
+固定 OP 只接受一种工具版本和精确 draft 引用，重试不扩写入槽；同一 run 先建作品后写另一正式章被拒绝，下一轮新授权可继续原 session。
+未知 OP 从原 invocation 和不可变工具快照核实，响应丢失、取消、模型失败及重启不抹去已保存业务成果。
+运行时本地确定性 Pi/HTTP 验证覆盖这些边界；应用事务、真实回调身份和生产发布仍由跨项目交付验收。

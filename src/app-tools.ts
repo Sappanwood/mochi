@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ManagedIdentityCredential } from '@azure/identity';
 import { TaskError } from './task-types.ts';
-import type { CallbackRequest, CallbackResponse, OperationReceipt, OperationResponse, ToolBinding, ToolSnapshot } from './tool-types.ts';
+import type { CallbackRequest, CallbackResponse, OperationBinding, OperationReceipt, OperationResponse, ToolBinding, ToolSnapshot } from './tool-types.ts';
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -38,6 +38,12 @@ function schema(value: unknown, depth = 0): asserts value is Record<string, unkn
       || value.required.some(key => typeof key !== 'string' || !Object.hasOwn(value.properties as object, key))
       || new Set(value.required).size !== value.required.length || Object.keys(value.properties).length > 64) invalid();
     for (const child of Object.values(value.properties)) schema(child, depth + 1);
+  } else if (value.type === 'array') {
+    if (!keys(value, ['type', 'items', 'minItems', 'maxItems']) || !Number.isSafeInteger(value.maxItems)
+      || Number(value.maxItems) < 0 || Number(value.maxItems) > 16
+      || ('minItems' in value && (!Number.isSafeInteger(value.minItems) || Number(value.minItems) < 0))
+      || Number(value.minItems ?? 0) > Number(value.maxItems)) invalid();
+    schema(value.items, depth + 1);
   } else if (['string', 'integer', 'boolean'].includes(String(value.type))) {
     const allowed = value.type === 'string' ? ['type', 'enum', 'minLength', 'maxLength']
       : value.type === 'integer' ? ['type', 'enum', 'minimum', 'maximum'] : ['type', 'enum'];
@@ -59,6 +65,8 @@ function matches(s: Record<string, unknown>, value: unknown): boolean {
     return (s.required as string[]).every(key => Object.hasOwn(value, key))
       && Object.keys(value).every(key => Object.hasOwn(props, key) && matches(props[key]!, value[key]));
   }
+  if (s.type === 'array') return Array.isArray(value) && value.length >= Number(s.minItems ?? 0)
+    && value.length <= Number(s.maxItems) && value.every(item => matches(s.items as Record<string, unknown>, item));
   if (s.type === 'string' && (typeof value !== 'string' || [...value].length < Number(s.minLength ?? 0) || [...value].length > Number(s.maxLength ?? Infinity))) return false;
   if (s.type === 'integer' && (!Number.isSafeInteger(value) || Number(value) < Number(s.minimum ?? -Infinity) || Number(value) > Number(s.maximum ?? Infinity))) return false;
   if (s.type === 'boolean' && typeof value !== 'boolean') return false;
@@ -67,9 +75,32 @@ function matches(s: Record<string, unknown>, value: unknown): boolean {
 const errorCodes = new Set(['invalid_arguments', 'forbidden_scope', 'authorization_required', 'authorization_revoked', 'draft_conflict',
   'operation_conflict', 'revision_conflict', 'invalid_cursor', 'not_found', 'result_too_large']);
 function receipt(value: unknown, operationId: string): value is OperationReceipt {
-  return object(value) && keys(value, ['operation_id', 'status', 'story_id', 'chapter_id', 'revision', 'content_hash'])
-    && value.operation_id === operationId && value.status === 'committed' && text(value.story_id) && text(value.chapter_id)
-    && text(value.revision) && typeof value.content_hash === 'string' && /^sha256:[a-f0-9]{64}$/.test(value.content_hash);
+  if (!object(value) || value.operation_id !== operationId || value.status !== 'committed' || !text(value.story_id)
+    || !text(value.revision) || !hash(value.content_hash)) return false;
+  if (!('kind' in value)) return keys(value, ['operation_id', 'status', 'story_id', 'chapter_id', 'revision', 'content_hash']) && text(value.chapter_id);
+  if (!keys(value, ['operation_id', 'status', 'story_id', 'kind', 'revision', 'content_hash', 'draft_id', 'draft_revision', 'draft_hash', 'assets', 'chapter'])
+    || !text(value.draft_id) || !text(value.draft_revision) || !hash(value.draft_hash) || value.content_hash !== value.draft_hash
+    || !Array.isArray(value.assets) || value.assets.length > 8) return false;
+  const ids = new Set<string>(); const singletonKinds = new Set<string>();
+  for (const asset of value.assets) {
+    if (!object(asset) || !keys(asset, ['asset_id', 'kind', 'revision', 'content_hash']) || !text(asset.asset_id)
+      || !['setting', 'outline', 'snapshot'].includes(String(asset.kind)) || !text(asset.revision) || !hash(asset.content_hash)
+      || ids.has(asset.asset_id) || (asset.kind !== 'snapshot' && singletonKinds.has(String(asset.kind)))) return false;
+    ids.add(asset.asset_id); singletonKinds.add(String(asset.kind));
+  }
+  if (value.kind === 'story_initialized') return !('chapter' in value);
+  return value.kind === 'first_chapter_saved' && object(value.chapter) && keys(value.chapter, ['chapter_id', 'revision', 'content_hash'])
+    && text(value.chapter.chapter_id) && text(value.chapter.revision) && hash(value.chapter.content_hash);
+}
+function hash(value: unknown): value is string { return typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value); }
+export function formalCommit(tool: Pick<ToolSnapshot, 'name' | 'version'>, args: Record<string, unknown>): boolean {
+  return tool.version === '1' && ['create_chapter', 'initialize_story'].includes(tool.name) && args.mode === 'commit';
+}
+function matchesReceipt(value: OperationReceipt, binding: OperationBinding): boolean {
+  if (!formalCommit(binding.tool, binding.arguments) || value.story_id !== binding.story_id) return false;
+  if (binding.tool.name === 'create_chapter') return !('kind' in value);
+  return 'kind' in value && value.draft_id === binding.arguments.draft_id
+    && value.draft_revision === binding.arguments.draft_revision && value.draft_hash === binding.arguments.draft_hash;
 }
 function transport(): never { throw new Error('tool_transport_failed'); }
 interface Options { allowLoopback?: boolean; token?: (audience: string, signal: AbortSignal) => Promise<string>; fetch?: typeof fetch }
@@ -179,18 +210,26 @@ export class AppTools {
         || !keys(value.error, ['code', 'retryable']) || !errorCodes.has(String(value.error.code)) || value.error.retryable !== false) transport();
     } else if (value.outcome === 'ok') {
       if (!keys(value, ['protocol_version', 'invocation_id', 'outcome', 'data', 'receipt']) || !object(value.data)) transport();
-      const commit = request.tool.name === 'create_chapter' && request.arguments.mode === 'commit';
+      const commit = formalCommit(request.tool, request.arguments);
       if (commit) {
-        if (!receipt(value.receipt, request.scope.operation_id) || value.receipt.story_id !== request.scope.story_id) transport();
+        if (!binding.tools.some(tool => tool.name === request.tool.name && tool.version === request.tool.version && tool.effect === 'write')
+          || !receipt(value.receipt, request.scope.operation_id) || !matchesReceipt(value.receipt,
+          { tool: request.tool, story_id: request.scope.story_id, arguments: request.arguments })) transport();
       } else if ('receipt' in value) transport();
+      if (request.tool.name === 'initialize_story' && request.tool.version === '1' && request.arguments.mode === 'draft') {
+        if (!text(value.data.draft_id) || !text(value.data.draft_revision) || !hash(value.data.draft_hash) || !text(value.data.title, 512)
+          || value.data.artifact_kind !== 'story_initialization' || typeof value.data.includes_chapter !== 'boolean'
+          || value.data.includes_chapter !== ('chapter' in request.arguments)) transport();
+      }
     } else transport();
     return value as unknown as CallbackResponse;
   }
-  async operation(appId: string, operationId: string, signal: AbortSignal): Promise<OperationResponse> {
+  async operation(appId: string, operationId: string, signal: AbortSignal, binding?: OperationBinding): Promise<OperationResponse> {
     const value = await this.#request(appId, 'operations_endpoint', signal, undefined, operationId);
     if (!object(value) || value.protocol_version !== 1 || value.operation_id !== operationId) transport();
     if (value.status === 'committed') {
-      if (!keys(value, ['protocol_version', 'operation_id', 'status', 'receipt']) || !receipt(value.receipt, operationId)) transport();
+      if (!keys(value, ['protocol_version', 'operation_id', 'status', 'receipt']) || !receipt(value.receipt, operationId)
+        || (binding && !matchesReceipt(value.receipt, binding))) transport();
     } else if (value.status === 'rejected') {
       if (!keys(value, ['protocol_version', 'operation_id', 'status', 'error']) || !object(value.error)
         || !keys(value.error, ['code']) || !errorCodes.has(String(value.error.code))) transport();

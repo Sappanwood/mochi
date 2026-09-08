@@ -7,8 +7,21 @@ export interface ToolBinding {
 }
 export interface RunScope { task_id: string; story_id: string; source_message_id: string; operation_id: string; authorization_id?: string }
 export interface RunBudget { max_model_calls: number; max_tool_calls: number; max_write_operations: number; timeout_ms: number }
-export interface OperationReceipt {
+export interface ChapterReceipt {
   operation_id: string; status: 'committed'; story_id: string; chapter_id: string; revision: string; content_hash: string;
+}
+interface InitializationReceiptBase {
+  operation_id: string; status: 'committed'; story_id: string; revision: string; content_hash: string;
+  draft_id: string; draft_revision: string; draft_hash: string;
+  assets: { asset_id: string; kind: 'setting' | 'outline' | 'snapshot'; revision: string; content_hash: string }[];
+}
+export type InitializationReceipt = InitializationReceiptBase & (
+  | { kind: 'story_initialized'; chapter?: never }
+  | { kind: 'first_chapter_saved'; chapter: { chapter_id: string; revision: string; content_hash: string } }
+);
+export type OperationReceipt = ChapterReceipt | InitializationReceipt;
+export interface OperationBinding {
+  tool: Pick<ToolSnapshot, 'name' | 'version'>; story_id: string; arguments: Record<string, unknown>;
 }
 export interface CallbackRequest {
   protocol_version: 1; app_id: string; session_id: string; run_id: string; task_id: string;
@@ -23,7 +36,10 @@ export type OperationResponse =
   | { protocol_version: 1; operation_id: string; status: 'rejected'; error: { code: string } }
   | { protocol_version: 1; operation_id: string; status: 'not_found' };
 export interface RunOperation { operation_id: string; status: 'committed' | 'rejected' | 'unknown'; receipt?: OperationReceipt; error?: { code: string } }
-export interface RunArtifact { draft_id: string; draft_revision: string; draft_hash: string; title: string }
+export type RunArtifact = { draft_id: string; draft_revision: string; draft_hash: string; title: string } & (
+  | { artifact_kind?: never; includes_chapter?: never }
+  | { artifact_kind: 'story_initialization'; includes_chapter: boolean }
+);
 export interface ToolInvocation {
   invocation_id: string; tool_call_id: string; name: string;
   status: 'prepared' | 'dispatched' | 'succeeded' | 'rejected' | 'unknown';
