@@ -176,6 +176,8 @@ Mochi 从 `MOCHI_AUTH_MODE=entra`、`MOCHI_ENTRA_ISSUER`、`MOCHI_ENTRA_AUDIENCE
 
 [应用工具契约](APP_TOOLS.md)是双方接入接口：按已认证 app 静态绑定回调地址、反向 Entra audience 和工具 allowlist，
 会话固定 system prompt/schema/version 快照，run 固定业务 scope 与有限预算。Pi 0.85.1 注册 customTools 并显式传入 tools 名单；
+仅 provider 参数投影为根 oneOf 补充等价的 `type:object`；持久快照/hash 和后端严格分支校验不变，
+避免 DeepSeek 将缺少根类型的工具参数判为无效 schema。
 保留默认无工具，禁用 built-in 工具与本地资源发现，不复制 Agent loop。
 
 Write 经独立无工具 Mochi 会话解释原始用户消息；Write 后端校验有限授权并拥有草稿、章节、原子幂等收据和撤回顺序。

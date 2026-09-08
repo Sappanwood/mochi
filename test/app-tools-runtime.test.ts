@@ -82,6 +82,40 @@ function respond(t: TestContext, pi: Awaited<ReturnType<typeof createPi>>, turns
 }
 const call = (id: string, name: string, args: Record<string, unknown>): AssistantMessage['content'] => [{ type: 'toolCall', id, name, arguments: args }];
 
+test('provider tool projection gives root oneOf an object type without changing the canonical snapshot', async t => {
+  const f = await toolFixture(t);
+  const snapshot = structuredClone(f.session.tools);
+  const snapshotHash = f.session.tool_snapshot_hash;
+  const contexts: { tools: { name: string; parameters: Record<string, unknown> }[] }[] = [];
+  respond(t, f.pi, [[{ type: 'text', text: 'Discuss only.' }]], context => contexts.push(JSON.parse(context)));
+  const run = await f.submit(); await f.tasks.execute(run.run_id, f.executor);
+  assert.equal((await f.tasks.run('app-a', run.run_id)).status, 'succeeded');
+  const projected = contexts[0]!.tools.find(tool => tool.name === 'create_chapter')!;
+  assert.equal(projected.parameters.type, 'object');
+  assert.deepEqual(projected.parameters, { ...chapterTool.parameters, type: 'object' });
+  assert.deepEqual(contexts[0]!.tools.find(tool => tool.name === 'read_asset')!.parameters, readTool.parameters);
+  const persisted = f.store.sessions.get(f.session.session_id)!;
+  assert.deepEqual(persisted.tools, snapshot);
+  assert.equal(persisted.tool_snapshot_hash, snapshotHash);
+  assert.equal(persisted.tools![1]!.parameters.type, undefined);
+});
+
+test('projected oneOf still rejects mixed draft and commit arguments before business callbacks', async t => {
+  const f = await toolFixture(t);
+  respond(t, f.pi, [
+    call('mixed-draft', 'create_chapter', { mode: 'draft', title: 'Chapter', body: 'Body', draft_id: 'not-allowed' }),
+    call('mixed-commit', 'create_chapter', { mode: 'commit', draft_id: 'draft-1', draft_revision: '1', draft_hash: hash, body: 'not-allowed' }),
+    [{ type: 'text', text: 'Both mixed arguments were rejected.' }],
+  ]);
+  const run = await f.submit(); await f.tasks.execute(run.run_id, f.executor);
+  assert.equal((await f.tasks.run('app-a', run.run_id)).status, 'succeeded');
+  assert.equal(f.callbacks.length, 0);
+  const history = await f.tasks.piHistory('app-a', f.session.session_id);
+  assert.equal(history.messages.filter(item => item.message.role === 'toolResult' && item.message.isError).length, 2);
+  assert.throws(() => f.appTools.validateArguments(chapterTool, { mode: 'draft', title: 'Chapter', body: 'Body', draft_id: 'not-allowed' }), /invalid_arguments/);
+  assert.throws(() => f.appTools.validateArguments(chapterTool, { mode: 'commit', draft_id: 'draft-1', draft_revision: '1', draft_hash: hash, body: 'not-allowed' }), /invalid_arguments/);
+});
+
 test('real Pi loop persists full tool history before callbacks, emits draft and receipt, sums every model usage', async t => {
   const f = await toolFixture(t);
   const calls = respond(t, f.pi, [call('read-1', 'read_asset', { asset_id: 'a', revision: '1' }),

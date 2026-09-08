@@ -14,7 +14,7 @@ export function toolExecution(input: ExecutionInput, appTools: AppTools, record:
   const fail = (code: string): never => { const error = new Error(code); stop(error); throw error; };
   const customTools: ToolDefinition[] = session.tools!.map(tool => ({
     name: tool.name, label: tool.name, description: tool.description,
-    parameters: tool.parameters as ToolDefinition['parameters'], executionMode: 'sequential',
+    parameters: (Array.isArray(tool.parameters.oneOf) ? { ...tool.parameters, type: 'object' } : tool.parameters) as ToolDefinition['parameters'], executionMode: 'sequential',
     async execute(toolCallId, args, toolSignal) {
       signal.throwIfAborted();
       appTools.validateArguments(tool, args);

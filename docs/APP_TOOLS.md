@@ -52,6 +52,10 @@ Mochi 及应用均校验参数，不能用模型受限采样替代后端校验�
 模型不能改变会话快照；改配置需新建会话。每次提交与执行 run 均核对静态登记仍支持该快照的 name/version/effect，
 否则拒绝 `tool_version_unavailable`，不默默升级旧工具。快照与端点配置职责分开，凭据和网络地址不写入会话。
 
+传给 Pi/provider 的参数投影会为根 `oneOf` 补充 `type:"object"`，满足 DeepSeek 工具参数根对象要求；
+各分支原本均限定 object，故不改变可接受参数集合。canonical 工具定义、已持久快照及 hash 保持原样，
+后端仍以原始 `oneOf` 严格校验，禁止 draft/commit 混合字段。不启用 DeepSeek strict beta 或改变 endpoint。
+
 ## Run 输入与有界执行
 
 工具会话在原 run 输入上必须增加 scope，budget 可省略使用下表默认值：
