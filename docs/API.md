@@ -27,20 +27,24 @@ provider 只有 DeepSeek API key 与 OpenAI subscription (`openai-codex`)；默�
 
 | 方法 / 路径 | 输入 | 响应 |
 |---|---|---|
-| `GET /v1/models` | 无 | `{models:[{provider,id,name,auth,context_window,max_output_tokens}]}` |
-| `POST /v1/sessions` | `{system_prompt?:string,thinking_level?:"off"}` | 201 `{session_id,created_at,system_prompt,thinking_level?:"off"}` |
-| `GET /v1/sessions/:id` | 无 | `{session_id,created_at,system_prompt,thinking_level?:"off"}` |
+| `GET /v1/models` | 无 | `{models:[{provider,id,name,auth,context_window,max_output_tokens,thinking_levels}]}` |
+| `POST /v1/sessions` | `{system_prompt?:string,thinking_level?:ThinkingLevel}` | 201 `{session_id,created_at,system_prompt,thinking_level?:ThinkingLevel}` |
+| `GET /v1/sessions/:id` | 无 | `{session_id,created_at,system_prompt,thinking_level?:ThinkingLevel}` |
 | `GET /v1/sessions/:id/history` | 无 | `{messages:[{role,content,run_id}]}` |
 
 `session_id` 由服务器生成 UUID。`system_prompt` 非空、最多 64 KiB UTF-8；省略使用无工具对话默认提示。
 创建后不可修改；需要改变固定前缀时创建新会话。模型请求使用该精确前缀与持久 session ID，不附加临时工作目录。
-`thinking_level` 只接受可选值 `"off"`，其他值（包括 null）返回 400 `invalid_request`。
+`ThinkingLevel` 为 `"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"`。
+`thinking_level` 可省略；非法值（包括 null）返回 400 `invalid_request`。
+`thinking_levels` 来自固定 Pi 版本的 `getSupportedThinkingLevels(model)`，调用方按当前模型的列表提供选择；
+例如 DeepSeek V4 Flash 为 off/low/high/max，V4 Pro 为 off/high/max。
 它是创建时固定、持久恢复的 session 设置，所有后续 run 都向 Pi SDK 请求同一 thinking level，run 不接受覆盖。
 省略时不补字段，沿用 SDK 默认；不根据提示文本或是否有工具决定 thinking。
 当前 Pi 0.85.1 的 DeepSeek 模型支持 off，并投影为 `thinking:{type:"disabled"}`；省略时 SDK 默认 medium 调整为 high。
 模型不支持的 level 仍按 SDK 能力调整：当前 `openai-codex/gpt-6-astra` 的 off 会调整为 minimal，因此此字段不保证所有模型均能关闭 thinking。
 参数不改变工具快照、业务授权、输出预算或完整输出判定；独立意图解释可显式使用，创作和旧 session 保持原配置。
-消费者发送新字段前须先发布支持它的 Mochi，旧 runtime 会拒绝未知字段。
+消费者发送非 off 的强度前须先发布支持完整档位的 Mochi，旧 runtime 会拒绝这些值。
+本次扩展不改变 run 的 provider/model 契约；mochi-write 在自身创作会话中固定模型，并在后端拒绝更换。
 模型目录是固定 Pi 版本的能力目录，`auth` 为 `api_key` 或 `oauth`；不证明账户已授权某模型或凭据可用。
 历史仅包含成功完整回合，以 user/assistant 文本成对返回；失败或取消的 partial 输出不进入下轮上下文。
 同一会话只接受一个未结束任务（其余提交 409 `session_busy`），不同会话可排队，服务全局串行执行。

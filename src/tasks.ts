@@ -1,3 +1,4 @@
+import { thinkingLevels, type ThinkingLevel } from './task-types.ts';
 import { randomUUID } from 'node:crypto';
 import { TaskStore } from './task-store.ts';
 import { TaskError, defaultSystem, publicRun, terminal } from './task-types.ts';
@@ -55,10 +56,10 @@ export class Tasks {
     const snapshot = this.appTools.validate(appId, input.tools);
     if (snapshot && !text(input.system_prompt)) throw new TaskError(400, 'invalid_request');
     if (input.system_prompt !== undefined && !text(input.system_prompt)) throw new TaskError(400, 'invalid_request');
-    if (input.thinking_level !== undefined && input.thinking_level !== 'off') throw new TaskError(400, 'invalid_request');
+    if (input.thinking_level !== undefined && !thinkingLevels.includes(input.thinking_level as ThinkingLevel)) throw new TaskError(400, 'invalid_request');
     return this.#serial(async () => {
       const session: StoredSession = { app_id: appId, session_id: randomUUID(), created_at: now(), system_prompt: input.system_prompt as string ?? defaultSystem,
-        ...(input.thinking_level === 'off' ? { thinking_level: 'off' } : {}), ...snapshot };
+        ...(input.thinking_level !== undefined ? { thinking_level: input.thinking_level as ThinkingLevel } : {}), ...snapshot };
       await this.store.saveSession(session); const { app_id: _, ...result } = session; return result;
     });
   }

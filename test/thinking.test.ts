@@ -27,10 +27,17 @@ test('HTTP session thinking opt-in rejects invalid values and survives restart f
     method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer local-test' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  for (const value of ['medium', 'OFF', '', null, false, 0, {}, []]) {
+  for (const value of ['ultra', 'OFF', '', null, false, 0, {}, []]) {
     const response = await call('/v1/sessions', { thinking_level: value });
     assert.equal(response.status, 400, JSON.stringify(value));
     assert.deepEqual(await response.json(), { error: 'invalid_request' });
+  }
+  for (const level of ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']) {
+    const response = await call('/v1/sessions', { thinking_level: level });
+    assert.equal(response.status, 201);
+    const created = await response.json() as { session_id: string; thinking_level: string };
+    assert.equal(created.thinking_level, level);
+    assert.equal((await (await call(`/v1/sessions/${created.session_id}`)).json() as { thinking_level: string }).thinking_level, level);
   }
   const legacyResponse = await call('/v1/sessions', { system_prompt: 'same system' });
   assert.equal(legacyResponse.status, 201);
@@ -91,7 +98,7 @@ test('real Pi executor projects explicit off to DeepSeek HTTP disabled without c
     return stream(...args);
   });
   const now = new Date().toISOString();
-  for (const thinking_level of [undefined, 'off', 'off', undefined] as const) {
+  for (const thinking_level of [undefined, 'off', 'low', 'high', 'max', undefined] as const) {
     const input: ExecutionInput = {
       session: { app_id: 'alpha', session_id: 'session', created_at: now, system_prompt: 'same system',
         ...(thinking_level === undefined ? {} : { thinking_level }) },
@@ -103,9 +110,16 @@ test('real Pi executor projects explicit off to DeepSeek HTTP disabled without c
     const result = await piExecutor(pi)(input, new AbortController().signal, async () => {});
     assert.equal(result.text, '{"intent":"none"}');
   }
-  assert.equal(requests.length, 4);
-  assert.deepEqual(requests.map(request => request.thinking), [{ type: 'enabled' }, { type: 'disabled' }, { type: 'disabled' }, { type: 'enabled' }]);
-  assert.deepEqual(reasoning, ['high', undefined, undefined, 'high']);
-  assert.deepEqual(requests.map(request => request.reasoning_effort), ['high', undefined, undefined, 'high']);
+  assert.equal(requests.length, 6);
+  assert.deepEqual(requests.map(request => request.thinking), [{ type: 'enabled' }, { type: 'disabled' }, { type: 'enabled' }, { type: 'enabled' }, { type: 'enabled' }, { type: 'enabled' }]);
+  assert.deepEqual(reasoning, ['high', undefined, 'low', 'high', 'max', 'high']);
+  assert.deepEqual(requests.map(request => request.reasoning_effort), ['high', undefined, 'low', 'high', 'max', 'high']);
   assert.ok(requests.every(request => request.max_tokens === 2048 && request.tools === undefined));
+});
+
+test('model catalog publishes only the thinking levels supported by the pinned Pi model', async () => {
+  const pi = await createPi(new InMemoryCredentialStore());
+  const models = pi.models();
+  assert.deepEqual((models.find(m => m.id === 'deepseek-v4-flash') as unknown as { thinking_levels: string[] }).thinking_levels, ['off', 'low', 'high', 'max']);
+  assert.deepEqual((models.find(m => m.id === 'deepseek-v4-pro') as unknown as { thinking_levels: string[] }).thinking_levels, ['off', 'high', 'max']);
 });

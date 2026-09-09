@@ -1,9 +1,9 @@
 import {
   createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager,
 } from '@earendil-works/pi-coding-agent';
-import { InMemoryModelsStore } from '@earendil-works/pi-ai';
+import { InMemoryModelsStore, getSupportedThinkingLevels } from '@earendil-works/pi-ai';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type { PiMessage } from './task-types.ts';
+import type { PiMessage, ThinkingLevel } from './task-types.ts';
 import type { AuthInteraction, Credential, CredentialStore } from '@earendil-works/pi-ai';
 
 const providers = ['deepseek', 'openai-codex'] as const;
@@ -93,7 +93,7 @@ export async function createPi(credentials: CredentialStore) {
     },
     models: () => providers.flatMap(provider => runtime.getModels(provider).map(model => ({
       provider, id: model.id, name: model.name, auth: provider === 'deepseek' ? 'api_key' : 'oauth',
-      context_window: model.contextWindow, max_output_tokens: model.maxTokens,
+      context_window: model.contextWindow, max_output_tokens: model.maxTokens, thinking_levels: getSupportedThinkingLevels(model),
     }))),
     async status() {
       return Promise.all(providers.map(async provider => ({
@@ -114,7 +114,7 @@ export async function createPi(credentials: CredentialStore) {
 export type Pi = Awaited<ReturnType<typeof createPi>>;
 
 export async function openConversation(pi: Pi, input: {
-  cwd: string; agentDir: string; provider: string; model: string; sessionId?: string; systemPrompt?: string; maxOutputTokens?: number; thinkingLevel?: 'off';
+  cwd: string; agentDir: string; provider: string; model: string; sessionId?: string; systemPrompt?: string; maxOutputTokens?: number; thinkingLevel?: ThinkingLevel;
   history?: { role: 'user' | 'assistant'; content: string }[]; piHistory?: PiMessage[]; customTools?: ToolDefinition[];
 }) {
   const model = await pi.requireModel(input.provider, input.model);
