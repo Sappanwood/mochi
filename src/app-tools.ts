@@ -22,14 +22,15 @@ export function stable(value: unknown): string {
 function schema(value: unknown, depth = 0, maxItems = 16): asserts value is Record<string, unknown> {
   if (!object(value) || depth > 8) invalid();
   if ('oneOf' in value) {
-    if (depth !== 0 || !keys(value, ['oneOf']) || !Array.isArray(value.oneOf) || value.oneOf.length < 2 || value.oneOf.length > 8) invalid();
-    const modes = new Set<string>();
+    if (!keys(value, ['oneOf']) || !Array.isArray(value.oneOf) || value.oneOf.length < 2 || value.oneOf.length > 8) invalid();
+    const discriminator = depth === 0 ? 'mode' : 'type';
+    const values = new Set<string>();
     for (const branch of value.oneOf) {
       schema(branch, depth + 1, maxItems);
-      const mode = object(branch.properties) ? branch.properties.mode : undefined;
-      if (branch.type !== 'object' || !object(mode) || !Array.isArray(mode.enum) || mode.enum.length !== 1
-        || typeof mode.enum[0] !== 'string' || modes.has(mode.enum[0]) || !(branch.required as string[]).includes('mode')) invalid();
-      modes.add(mode.enum[0]);
+      const tag = object(branch.properties) ? branch.properties[discriminator] : undefined;
+      if (branch.type !== 'object' || !object(tag) || !Array.isArray(tag.enum) || tag.enum.length !== 1
+        || typeof tag.enum[0] !== 'string' || values.has(tag.enum[0]) || !(branch.required as string[]).includes(discriminator)) invalid();
+      values.add(tag.enum[0]);
     }
     return;
   }

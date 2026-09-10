@@ -47,9 +47,9 @@ Application-only `Write.Tools.Invoke` 授予、两端身份 allowlist 与上述�
 
 最多 16 个唯一工具，定义总共最多 32 KiB；description 最多 2048 UTF-8 字节。
 parameters 只接受 object、array、string、integer、boolean、enum、properties、required、additionalProperties:false、
-minLength/maxLength、minimum/maximum 和顶层 oneOf；array 仅支持 items/minItems/maxItems，maxItems 必填且为 0–16 的整数，
+minLength/maxLength、minimum/maximum 和可判别 oneOf；array 仅支持 items/minItems/maxItems，maxItems 必填且为 0–16 的整数，
 minItems 可省略（默认 0），不得超过 maxItems；items 递归遵守相同 schema、最大深度 8 和定义字节预算，不支持 tuple 或任意 schema。
-oneOf 分支必须有唯一 mode enum，禁止 $ref 和未支持关键字。
+根 oneOf 分支必须有唯一 mode 单值字符串 enum；嵌套 oneOf 分支必须为 object，按必填 type 的唯一单值字符串 enum 判别。两者保持 2–8 分支、最大深度 8 与相同关键字限制，拒绝缺失、重复或多值判别字段；不支持任意联合、anyOf 或 $ref。
 所有 object 禁止额外属性；字符串 schema 长度按 Unicode 字符数，整个协议另检查 UTF-8 字节大小。
 Mochi 及应用均校验参数，不能用模型受限采样替代后端校验。
 
@@ -356,7 +356,7 @@ failed/cancelled/interrupted 仍可带 committed 收据；业务保存成功和�
 | 9 | initialize_story/2/write |
 | 10 | create_chapter/2/write |
 
-schema 仍只接受严格 object、根 mode oneOf、有界 array 和既有基本类型，最大深度 8。
+schema 只接受严格 object、根 mode oneOf、嵌套 type oneOf、有界 array 和既有基本类型，最大深度 8。嵌套联合用于准确传达资产／候选引用形状，不增加工具权限；旧已保存工具快照保持不可变，新 session 才取得修正后的 schema。
 v2 的 array maxItems 上限扩为 30，以承载角色最多 30 个 genres；v1 创建时仍最多 16。
 所有 callback 的实际请求最多 128 KiB、响应最多 64 KiB，不截断。工具自身更小的字节/Unicode、候选完整包、
 来源及业务字段范围由 Write 严格校验；Mochi 不把合法 schema 当成用户授权。
