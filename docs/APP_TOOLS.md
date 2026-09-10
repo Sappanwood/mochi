@@ -7,6 +7,7 @@
 本文同时固定其必须遵循的契约，不把 Mochi 单仓库测试当成消费者或云端验收。无工具接口见 [Agent API](API.md)。第一消费者为 mochi-write：
 既有 create_chapter v1 支持在故事中取材、创建草稿和新建一章。新增 initialize_story v1 的运行时支持已在本地验证，
 消费者业务接入和云发布另行验收；允许仅作品资料初始化或首章关联保存，具体范围由 Write 授权和原子事务校验。
+v2 自由会话运行时支持已完成本地实现，接入契约见文末；消费者业务、配置登记与云发布尚未验收。
 不开放 shell、文件工具、扩展发现、任意地址访问或多 Agent。真实模型与本地隔离工具联调不等于云回调认证验收。
 
 Mochi 拥有模型凭据、运行会话、工具传输和执行证据；应用拥有用户意图解释策略、授权、草稿、正式章节和业务收据。
@@ -334,3 +335,113 @@ failed/cancelled/interrupted 仍可带 committed 收据；业务保存成功和�
 - [Pi Agent](https://github.com/earendil-works/pi/blob/v0.85.1/packages/agent/src/agent.ts)：agent.subscribe listener 被 await，支持消息持久屏障。
 - [Pi Agent loop](https://github.com/earendil-works/pi/blob/v0.85.1/packages/agent/src/agent-loop.ts)：执行前参数校验与错误 toolResult；不替代业务授权。
 - [Microsoft Entra 服务间认证](https://learn.microsoft.com/en-us/azure/container-apps/authentication-entra#daemon-client-application-service-to-service-calls)：app-only 调用与服务身份配置。
+
+## 自由会话 protocol v2
+
+新 session 显式提交 `tool_protocol_version:2`，字段与 system prompt、工具快照一起持久固定。
+省略仍是 v1；无工具、三工具、七工具的响应、canonical hash 和记录不增加字段。
+服务端 allowlist 按 `(name,version)` 唯一，可同时登记 v1/v2；单 session 不可混用以下集合之外的工具，
+且必须按此顺序提交十项（description、parameters 仍由应用提供并参与 canonical snapshot hash）：
+
+| 顺序 | name/version/effect |
+|---|---|
+| 1 | library_vocabulary/1/read |
+| 2 | search_library/1/read |
+| 3 | read_library/1/read |
+| 4 | search_assets/2/read |
+| 5 | read_asset/2/read |
+| 6 | discover_artifacts/2/read |
+| 7 | read_artifact/2/read |
+| 8 | save_character/2/write |
+| 9 | initialize_story/2/write |
+| 10 | create_chapter/2/write |
+
+schema 仍只接受严格 object、根 mode oneOf、有界 array 和既有基本类型，最大深度 8。
+v2 的 array maxItems 上限扩为 30，以承载角色最多 30 个 genres；v1 创建时仍最多 16。
+所有 callback 的实际请求最多 128 KiB、响应最多 64 KiB，不截断。工具自身更小的字节/Unicode、候选完整包、
+来源及业务字段范围由 Write 严格校验；Mochi 不把合法 schema 当成用户授权。
+
+### 输入与两阶段
+
+v2 run 的 `scope` 为以下严格对象，不接受 v1 story scope：
+
+```ts
+type ScopeV2 = {
+  protocol_version: 2;
+  conversation_id: string; task_id: string; source_message_id: string; operation_id: string;
+  phase: "resolve" | "execute"; refs_digest: string;
+  binding_digest?: string; authorization_id?: string;
+  target?: {kind:"character"; asset_id:string} | {kind:"story"; story_id:string};
+  action?: "create_character" | "update_character" | "initialize_story" | "save_first_chapter" | "create_chapter";
+};
+```
+
+ID 是 1–128 UTF-8 bytes；digest 为 `sha256:` 加 64 小写 hex。`binding_digest/authorization_id/target/action`
+四者必须同时存在或同时省略，resolve 必须省略且预算 `max_write_operations:0`。仅执行正式绑定时携带它们。
+角色 action 只配 character target，故事 action 只配 story target，拒绝未知字段与 null。
+`action` 是应用后端已核验的实际绑定动作：用户的 `save_current` 等解释意图必须由 Write 按冻结候选归约，
+不直接把创作模型输出作为该字段。
+
+候选预览上下文单独使用 run 顶层可选 `draft_context_digest`（仅 v2 execute、同 sha256 格式），
+其摘要来自 Write 在派发前持久冻结的 draftContext。此字段参与幂等，不能授予 commit；完整 draftContext、
+固定 refs、允许读取的 story 范围与 binding 由 Write 后端保存并在 callback 按 app/session/run/task/phase 核对。
+Mochi 不查询资料、推断目标或修改这些身份。目标证据不充分时 Write 澄清，不提交授权 run。
+
+需要检索时，Write 先提交 `<taskId>:resolve:1`：包括 draft 在内的所有 write 均在业务 callback 前拒绝。
+Write 独立核验解析结果并持久 binding/draftContext 后，再提交同一 session 的 `<taskId>:execute:1`。
+后一个 run 保留原 task/source message/OP/conversation/refs digest；新 prompt 可包含可信 continuation 摘要。
+Mochi 自动将此回合登记为 `customType:mochi-task-continuation` 的 Pi custom 消息，而非第二条用户消息。
+无需解析时直接一个 execute；无正式 binding 的 execute 可生成候选，commit 返回 authorization_required。
+
+每个 app/task 最多一个 resolve 和一个 execute，execute 只可接续 succeeded resolve，cancelled/failed/interrupted
+resolve 不可后绑定。换 key 不允许重做同一 phase，返回 409 task_phase_conflict；原 key 同输入始终返回原 run，
+同 key 异完整 scope、prompt、预算或候选上下文摘要返回 409 idempotency_conflict。
+候选不是正式业务成果：v2 最多八份成功候选，达到上限后不再派发 draft callback；业务拒绝仍消耗工具预算但不占候选名额。事件保留 group_id、ordinal、parent_ref 和
+artifact_kind（character/story_initialization/chapter），支持多个组和版本；正式 commit 仍只允许一个工具及精确 draft 身份。
+
+两阶段模型调用总计最多 8、工具总计最多 20、执行时间总计 300000 ms（不含 queued）。Mochi 持久计数，
+execute 准入自动取调用方预算与总额度减去 resolve 实际消耗后的较小值；resolve 的单 run 更小限制不减少总任务上限。
+不足以再调用模型、工具或运行 1000 ms 时返回 409 task_budget_exhausted。应用不能通过新 key 重置该任务预算。
+公开 run 增加 `execution_usage:{model_calls,tool_calls,duration_ms}`，用于 Write 扣除阶段消耗和展示。
+进程在 running 中断时按该 run 时间上限保守计量，不能据此自动续跑。独立无工具解释器的单次调用及其成本由 Write 另记，
+Write 还负责 epoch/取消、迟到解析结果、前一业务 OP 未终止的新消息 gate；Mochi cancel 只停止模型。
+
+### v2 callback 与核实
+
+沿用原固定 HTTPS/MI endpoint。请求的 `protocol_version:2`，其余 app_id/session_id/run_id/task_id/
+invocation_id/tool_call_id/tool/arguments 保持旧 envelope，scope 是上述 ScopeV2 去掉 task_id（仍含 protocol_version）。
+成功/错误 envelope 也明确为 2；拒绝 v1/v2 混搭。新增稳定业务错误 reference_unavailable/reference_changed。
+commit 仅接受 `{mode:"commit",draft_id,draft_revision:"1",draft_hash}`，拒绝模型追加 target、OP、正文或授权。
+具体写工具必须与绑定动作匹配；反向 callback 返回的收据和 GET 原 operations endpoint 核实同样遵循：
+
+| scope.action | tool/version | 唯一 receipt.kind |
+|---|---|---|
+| create_character | save_character/2 | character_created |
+| update_character | save_character/2 | character_updated |
+| initialize_story | initialize_story/2 | story_initialized |
+| save_first_chapter | initialize_story/2 | first_chapter_saved |
+| create_chapter | create_chapter/2 | chapter_created |
+
+ReceiptV2 是 `{protocol_version:2,operation_id,status:"committed",conversation_id,task_id,kind,target,
+ draft_id,draft_revision,draft_hash,content_hash,revision,assets?,chapter?}`。上述身份、target、动作、工具和精确稿
+全部匹配原 run/invocation。角色禁止 assets/chapter；仅初始化禁止 chapter，首章必须 chapter，初始化必须 assets
+（最多八项、ID 不重复、setting/outline 各最多一项），content_hash=draft_hash。
+chapter_created 必须 chapter、禁止 assets，顶层 revision/content_hash 必须等于章的 revision/content_hash。
+角色 content_hash 是 Write 冻结完整 Content 的 hash；Mochi 不将角色成果塞入旧 ChapterReceipt。
+
+GET `operations_endpoint/<original_operation_id>` 的 v2 结果为
+`{protocol_version:2,operation_id,status:"unknown"|"revoked"|"conflict"|"committed",receipt?}`，仅 committed 可带收据。
+Mochi 用持久 invocation、session snapshot 和原 scope 校验；Write 根据可信 directory/目标分区 OP ledger 取权威结果。
+unknown 不等于没有保存，revoked/conflict 才表示该 OP 已封闭；核实不重发模型或业务写入，模型终态不被改成成功。
+callback 响应丢失可原 OP 恢复；后续模型失败、取消或重启保留已知正式收据和所有候选。
+
+### Pi 生命周期与兼容
+
+同一个 executor 在进程内按 app/session 复用真实 Pi AgentSession，逐 run 替换工具执行委托、预算与模型设置；
+固定 snapshot 不换，已结束 run 的委托立即失效。Mochi Tasks.close 等待活动执行后释放 session 和临时目录。
+v2 的完整历史包含失败/取消的已持久消息及 continuation；重启按完整记录重建 Pi 内存状态，保持原 Mochi session ID，
+不会声称跨进程保留同一内存对象。v2 普通 history 文本投影仅含成功消息且不将 continuation 伪造成新 user；新消费者使用 history?format=pi-v1 和 run 成果。
+旧无工具/v1 仍每 run 以成功历史重建，旧持久数据不迁移、快照/hash 不重算。
+
+本地验证使用真实 Pi 与假 provider，覆盖多目标连续会话、多候选、两阶段预算、撤回后的迟到 phase 拒绝、
+篡改引用/收据和原 OP 恢复；没有调用真实收费模型、改权限或部署。Write 的内容/CAS/目录与多分区授权仍需消费者实现验收。

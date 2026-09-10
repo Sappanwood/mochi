@@ -1,17 +1,19 @@
+import { scopeV2, hash, operationBinding, validateProtocol } from './free-session.ts';
 import { thinkingLevels, type ThinkingLevel } from './task-types.ts';
 import { randomUUID } from 'node:crypto';
 import { TaskStore } from './task-store.ts';
 import { TaskError, defaultSystem, publicRun, terminal } from './task-types.ts';
 import type { Dispatch, ModelInfo, PiMessage, Run, RunInput, StoredRun, StoredSession, Usage } from './task-types.ts';
-import { AppTools, formalCommit } from './app-tools.ts';
+import { AppTools, formalCommit, stable } from './app-tools.ts';
 import type { RunArtifact, RunBudget, RunOperation, RunScope, ToolInvocation } from './tool-types.ts';
 
 export interface ExecutionInput { run: StoredRun; session: StoredSession; history: { role: 'user' | 'assistant'; content: string }[]; piHistory?: PiMessage[] }
 export type ExecutionRecord = { kind: 'message'; message: PiMessage } | { kind: 'invocation'; invocation: ToolInvocation }
   | { kind: 'operation'; operation: RunOperation } | { kind: 'artifact'; artifact: RunArtifact }
+  | { kind: 'execution_usage'; model_calls: number; tool_calls: number }
   | { kind: 'usage'; usage: Usage | null; complete: boolean };
 export type RecordExecution = (record: ExecutionRecord) => Promise<void>;
-export type Execute = (input: ExecutionInput, signal: AbortSignal, delta: (text: string) => Promise<void>, record?: RecordExecution) => Promise<{ text: string; usage: Usage | null; usage_complete?: boolean }>;
+export type Execute = ((input: ExecutionInput, signal: AbortSignal, delta: (text: string) => Promise<void>, record?: RecordExecution) => Promise<{ text: string; usage: Usage | null; usage_complete?: boolean }>) & { close?: () => Promise<void> };
 export const defaultRunBudget: RunBudget = { max_model_calls: 8, max_tool_calls: 20, max_write_operations: 1, timeout_ms: 300000 };
 function toolScope(value: unknown): RunScope {
   const scope = object(value); keys(scope, ['task_id', 'story_id', 'source_message_id', 'operation_id', 'authorization_id']);
@@ -42,6 +44,7 @@ export class Tasks {
   #tail: Promise<unknown> = Promise.resolve();
   #active: { id: string; controller: AbortController; done: Promise<void> } | undefined;
   #closing = false;
+  #executors = new Set<Execute>();
   readonly store: TaskStore; readonly dispatch: Dispatch; readonly models: () => ModelInfo[]; readonly appTools: AppTools;
   constructor(store: TaskStore, dispatch: Dispatch, models: () => ModelInfo[], appTools = new AppTools({})) { this.store = store; this.dispatch = dispatch; this.models = models; this.appTools = appTools; }
   #serial<T>(fn: () => Promise<T>) {
@@ -52,14 +55,15 @@ export class Tasks {
     this.#tail = result.catch(() => {}); return result;
   }
   async createSession(appId: string, value: unknown) {
-    const input = object(value); keys(input, ['system_prompt', 'tools', 'thinking_level']);
-    const snapshot = this.appTools.validate(appId, input.tools);
+    const input = object(value); keys(input, ['system_prompt', 'tools', 'thinking_level', 'tool_protocol_version']);
+    const snapshot = this.appTools.validate(appId, input.tools, input.tool_protocol_version === 2 ? 2 : undefined);
+    validateProtocol(snapshot?.tools, input.tool_protocol_version);
     if (snapshot && !text(input.system_prompt)) throw new TaskError(400, 'invalid_request');
     if (input.system_prompt !== undefined && !text(input.system_prompt)) throw new TaskError(400, 'invalid_request');
     if (input.thinking_level !== undefined && !thinkingLevels.includes(input.thinking_level as ThinkingLevel)) throw new TaskError(400, 'invalid_request');
     return this.#serial(async () => {
       const session: StoredSession = { app_id: appId, session_id: randomUUID(), created_at: now(), system_prompt: input.system_prompt as string ?? defaultSystem,
-        ...(input.thinking_level !== undefined ? { thinking_level: input.thinking_level as ThinkingLevel } : {}), ...snapshot };
+        ...(input.thinking_level !== undefined ? { thinking_level: input.thinking_level as ThinkingLevel } : {}), ...snapshot, ...(input.tool_protocol_version === 2 ? { tool_protocol_version: 2 as const } : {}) };
       await this.store.saveSession(session); const { app_id: _, ...result } = session; return result;
     });
   }
@@ -84,11 +88,11 @@ export class Tasks {
     await this.session(appId, id);
     return { messages: [...this.store.runs.values()].filter(run => run.session_id === id && run.status === 'succeeded')
       .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.run_id.localeCompare(b.run_id))
-      .flatMap(run => [{ role: 'user' as const, content: run.input.prompt, run_id: run.run_id },
+      .flatMap(run => [...(run.input.continuation ? [] : [{ role: 'user' as const, content: run.input.prompt, run_id: run.run_id }]),
         { role: 'assistant' as const, content: run.result!.text, run_id: run.run_id }]) };
   }
   async submit(appId: string, sessionId: string, value: unknown) {
-    const input = object(value); keys(input, ['idempotency_key', 'provider', 'model', 'prompt', 'max_output_tokens', 'scope', 'budget']);
+    const input = object(value); keys(input, ['idempotency_key', 'provider', 'model', 'prompt', 'max_output_tokens', 'scope', 'budget', 'draft_context_digest']);
     if (!text(input.idempotency_key, 128) || !text(input.provider, 64) || !text(input.model, 256) || !text(input.prompt)
       || (input.max_output_tokens !== undefined && (!Number.isInteger(input.max_output_tokens) || Number(input.max_output_tokens) < 1))) throw new TaskError(400, 'invalid_request');
     const model = this.models().find(model => model.provider === input.provider && model.id === input.model);
@@ -100,24 +104,60 @@ export class Tasks {
       const session = this.#session(appId, sessionId);
       if (session.tools?.length) {
         this.appTools.assertSupported(appId, session.tools);
-        normalized.scope = toolScope(input.scope); normalized.budget = toolBudget(input.budget); normalized.tool_snapshot_hash = session.tool_snapshot_hash;
-      } else if (input.scope !== undefined || input.budget !== undefined) throw new TaskError(400, 'invalid_request');
+        normalized.scope = session.tool_protocol_version === 2 ? scopeV2(input.scope) : toolScope(input.scope); normalized.budget = toolBudget(input.budget);
+        if (normalized.scope.protocol_version === 2 && normalized.scope.phase === 'resolve' && normalized.budget.max_write_operations !== 0) throw new TaskError(400, 'invalid_request');
+        if ('draft_context_digest' in input) {
+          if (normalized.scope.protocol_version !== 2 || normalized.scope.phase !== 'execute' || !hash(input.draft_context_digest)) throw new TaskError(400, 'invalid_request');
+          normalized.draft_context_digest = input.draft_context_digest;
+        }
+        normalized.tool_snapshot_hash = session.tool_snapshot_hash;
+      } else if (input.scope !== undefined || input.budget !== undefined || 'draft_context_digest' in input) throw new TaskError(400, 'invalid_request');
       const existing = [...this.store.runs.values()].find(run => run.app_id === appId && run.input.idempotency_key === normalized.idempotency_key);
       if (existing) {
-        if (existing.session_id !== sessionId || JSON.stringify(existing.input) !== JSON.stringify(normalized)) throw new TaskError(409, 'idempotency_conflict');
+        let same: boolean;
+        if (normalized.scope?.protocol_version === 2) {
+          const original = { ...existing.input, budget: existing.input.requested_budget };
+          delete original.requested_budget; delete original.continuation;
+          same = stable(original) === stable(normalized);
+        } else same = JSON.stringify(existing.input) === JSON.stringify(normalized);
+        if (existing.session_id !== sessionId || !same) throw new TaskError(409, 'idempotency_conflict');
         const copy = structuredClone(existing);
         if (copy.status === 'queued' && !copy.dispatched) await this.#dispatch(copy);
         return publicRun(copy);
       }
+      if (normalized.scope?.protocol_version === 2) this.#phase(appId, sessionId, normalized);
       if ([...this.store.runs.values()].some(run => run.session_id === sessionId && !terminal(run.status))) throw new TaskError(409, 'session_busy');
       await this.#budget(session, normalized, model);
       const time = now();
       const run: StoredRun = { app_id: appId, run_id: randomUUID(), session_id: sessionId, input: normalized,
         status: 'queued', created_at: time, updated_at: time, result: null, usage: null, error: null, dispatched: false,
         events: [{ cursor: 1, type: 'status', data: { status: 'queued' }, created_at: time }],
+        ...(session.tool_protocol_version === 2 ? { execution_usage: { model_calls: 0, tool_calls: 0, duration_ms: 0 } } : {}),
         ...(session.tools?.length ? { operations: [], artifacts: [], usage_complete: true, messages: [], invocations: [] } : {}) };
       await this.store.saveRun(run); await this.#dispatch(run); return publicRun(run);
     });
+  }
+  #phase(appId: string, sessionId: string, input: RunInput) {
+    const scope = input.scope!;
+    if (scope.protocol_version !== 2) return;
+    input.requested_budget = { ...input.budget! };
+    const others = [...this.store.runs.values()].filter(r => r.app_id === appId && r.input.scope?.task_id === scope.task_id
+      && r.input.scope.protocol_version === 2 && r.input.idempotency_key !== input.idempotency_key);
+    if (!others.length) return;
+    const previous = others[0]!; const prior = previous.input.scope!;
+    if (others.length !== 1 || previous.session_id !== sessionId || prior.protocol_version !== 2
+      || prior.phase !== 'resolve' || scope.phase !== 'execute' || previous.status !== 'succeeded'
+      || prior.conversation_id !== scope.conversation_id || prior.source_message_id !== scope.source_message_id
+      || prior.operation_id !== scope.operation_id || prior.refs_digest !== scope.refs_digest) throw new TaskError(409, 'task_phase_conflict');
+    const used = previous.execution_usage;
+    if (!used) throw new TaskError(409, 'task_budget_exhausted');
+    const limits = defaultRunBudget;
+    const budget = input.budget!;
+    budget.max_model_calls = Math.min(budget.max_model_calls, limits.max_model_calls - used.model_calls);
+    budget.max_tool_calls = Math.min(budget.max_tool_calls, limits.max_tool_calls - used.tool_calls);
+    budget.timeout_ms = Math.min(budget.timeout_ms, limits.timeout_ms - used.duration_ms);
+    if (budget.max_model_calls < 1 || budget.max_tool_calls < 1 || budget.timeout_ms < 1000) throw new TaskError(409, 'task_budget_exhausted');
+    input.continuation = true;
   }
   async #budget(session: StoredSession, input: RunInput, model: ModelInfo) {
     const history = await this.history(session.app_id, session.session_id);
@@ -139,6 +179,11 @@ export class Tasks {
   }
   async #status(run: StoredRun, status: Run['status'], error: string | null = null) {
     run.status = status; run.updated_at = now(); run.error = error;
+    if (run.execution_usage) {
+      if (status === 'running') run.execution_started_at = run.updated_at;
+      else if (error === 'process_interrupted') run.execution_usage.duration_ms = run.input.budget!.timeout_ms;
+      else if (terminal(status) && run.execution_started_at) run.execution_usage.duration_ms = Math.min(run.input.budget!.timeout_ms, Math.max(0, Date.now() - Date.parse(run.execution_started_at)));
+    }
     run.events.push({ cursor: run.events.length + 1, type: 'status', data: { status }, created_at: run.updated_at });
     await this.store.saveRun(run);
   }
@@ -196,6 +241,7 @@ export class Tasks {
     });
     if (!execution) return;
     const input = execution;
+    this.#executors.add(execute);
     const deadline = input.run.input.budget ? AbortSignal.timeout(input.run.input.budget.timeout_ms) : undefined;
     const combined = AbortSignal.any([controller.signal, this.store.signal, ...(signal ? [signal] : []), ...(deadline ? [deadline] : [])]);
     const work = (async () => {
@@ -225,7 +271,7 @@ export class Tasks {
         if (!this.store.signal.aborted) await this.#serial(async () => {
           const run = this.#run(input.run.app_id, runId);
           if (run.status !== 'running') return;
-          const code = error instanceof Error && ['authentication_required', 'unsupported_model', 'context_budget_exceeded', 'incomplete_output', 'output_limit', 'model_call_limit', 'tool_call_limit', 'write_operation_limit', 'run_timeout', 'tool_transport_failed', 'tool_result_unknown', 'tool_version_unavailable'].includes(error.message) ? error.message : 'provider_failed';
+          const code = error instanceof Error && ['authentication_required', 'unsupported_model', 'context_budget_exceeded', 'incomplete_output', 'output_limit', 'model_call_limit', 'tool_call_limit', 'write_operation_limit', 'run_timeout', 'tool_transport_failed', 'tool_result_unknown', 'tool_version_unavailable', 'forbidden_scope', 'authorization_required', 'result_too_large'].includes(error.message) ? error.message : 'provider_failed';
           await this.#status(run, deadline?.aborted ? 'failed' : combined.aborted ? 'interrupted' : 'failed', deadline?.aborted ? 'run_timeout' : combined.aborted ? 'execution_interrupted' : code);
         });
       } finally { this.#active = undefined; }
@@ -238,7 +284,7 @@ export class Tasks {
       .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.run_id.localeCompare(b.run_id));
   }
   #piHistory(sessionId: string): PiMessage[] {
-    return this.#orderedRuns(sessionId).filter(run => run.status === 'succeeded').flatMap(run => (run.messages ?? []).map(record => record.message));
+    return this.#orderedRuns(sessionId).filter(run => this.store.sessions.get(sessionId)?.tool_protocol_version === 2 || run.status === 'succeeded').flatMap(run => (run.messages ?? []).map(record => record.message));
   }
   async piHistory(appId: string, sessionId: string) {
     await this.session(appId, sessionId);
@@ -270,6 +316,8 @@ export class Tasks {
       } else if (record.kind === 'artifact') {
         if (!(run.artifacts ??= []).some(item => item.draft_id === record.artifact.draft_id)) run.artifacts.push(structuredClone(record.artifact));
         event('artifact_created', { ...record.artifact });
+      } else if (record.kind === 'execution_usage') {
+        if (run.execution_usage) { run.execution_usage.model_calls = record.model_calls; run.execution_usage.tool_calls = record.tool_calls; }
       } else { run.usage = record.usage; run.usage_complete = record.complete; }
       await this.store.saveRun(run);
     });
@@ -283,16 +331,18 @@ export class Tasks {
       const tool = this.store.sessions.get(stored.session_id)?.tools?.find(item => item.name === invocation?.name);
       if (!invocation || !tool || tool.effect !== 'write' || !formalCommit(tool, invocation.arguments) || !stored.input.scope) throw new Error('tool_transport_failed');
       const result = await this.appTools.operation(appId, operation.operation_id, AbortSignal.timeout(15000),
-        { tool, story_id: stored.input.scope.story_id, arguments: invocation.arguments });
+        operationBinding(tool, stored.input.scope, invocation.arguments));
       if (result.status === 'committed') {
-        if (result.receipt.story_id !== this.#run(appId, runId).input.scope?.story_id) throw new Error('tool_transport_failed');
         await this.#record(appId, runId, { kind: 'operation', operation: { operation_id: result.operation_id, status: 'committed', receipt: result.receipt } });
       }
+      else if (result.status === 'revoked' || result.status === 'conflict') await this.#record(appId, runId, { kind: 'operation', operation: { operation_id: result.operation_id, status: result.status } });
       else if (result.status === 'rejected') await this.#record(appId, runId, { kind: 'operation', operation: { operation_id: result.operation_id, status: 'rejected', error: result.error } });
     }
     return this.run(appId, runId);
   }
   async close() {
     this.#active?.controller.abort(); await this.#active?.done; await this.#tail; this.#closing = true;
+    for (const executor of this.#executors) await executor.close?.();
+    this.#executors.clear();
   }
 }

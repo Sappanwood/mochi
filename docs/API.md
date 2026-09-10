@@ -9,7 +9,24 @@
 初始化 run 的 operations.receipt 为严格 story_initialized / first_chapter_saved union；artifacts 和 artifact_created
 增加 artifact_kind:story_initialization 与 includes_chapter。核实时从持久 invocation 和原 session 工具快照核对工具版本、story/OP
 和精确 draft 引用；旧 create_chapter 收据及草稿不补新字段。新会话可从创建时固定完整生命周期工具集合，按新 run scope 继续写作。
-参数 schema 新增有界 array（maxItems 必填且最多 16），完整契约和示例见上述文档。
+v1 参数 schema 支持有界 array（maxItems 必填且最多 16），完整契约和示例见上述文档。
+
+## v2 自由会话扩展
+
+`POST /v1/sessions` 显式增加 `tool_protocol_version:2` 与固定有序十工具快照；路径版本不变，省略保持旧协议。
+`POST /v1/sessions/:id/runs` 接受严格 ScopeV2 与可选 `draft_context_digest`，完整形状及动作收据表见
+[自由会话契约](APP_TOOLS.md#自由会话-protocol-v2)。refs_digest 和预览摘要不授予写权限；正式 scope 的
+binding_digest/authorization_id/target/action 成组必需。resolve 只读且写额度为零，execute 无授权时只允许候选。
+
+每个应用 task 最多两个串行 phase，scope/source/OP/refs 不可替换。同键同输入返回原 run，异输入 409 idempotency_conflict；
+非法阶段接续为 409 task_phase_conflict，合计预算不足为 409 task_budget_exhausted。v2 run 响应额外包含
+`execution_usage:{model_calls,tool_calls,duration_ms}`；合计上限 8/20/300000 ms，queued 不计时。
+Artifacts 保留 group_id/ordinal/parent_ref/artifact_kind，operations 接受严格角色/初始化/章节 ReceiptV2 与
+unknown/revoked/conflict/committed 状态。取消/核实不改变已保存业务事实，也不代替 Write 撤销授权。
+
+同进程跨角色/故事 run 使用同一个真实 Pi AgentSession。execute 接续 resolve 时，完整 `pi-v1` 历史包含
+`role:custom,customType:mochi-task-continuation`，并保留原 source_message_id；v2 完整失败历史也进入后续上下文。
+默认无工具/v1 的成功文本历史、wire/hash/幂等和持久读取保持原样。新增 v2 仅本地实现，云发布另行验收。
 
 ## 范围与认证
 

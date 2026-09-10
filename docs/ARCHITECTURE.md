@@ -41,7 +41,7 @@ OAuth 刷新失败或取消时在同一 mutation 内持久写入重新登录标�
 
 `openConversation` 创建独立的内存 SessionManager，显式设置空工具列表并禁用所有工具、扩展、skills、
 templates、themes 与本地 context files。关闭自动 compaction 和 provider/agent 自动重试，
-避免隐式增加模型请求。每次执行由 Files 中成功历史重建内存会话，不让 Pi 直接写 SMB 会话文件。
+避免隐式增加模型请求。默认无工具/v1 每次执行由 Files 中成功历史重建内存会话，不让 Pi 直接写 SMB 会话文件。
 服务持久 session ID 与固定 system prompt 在该会话的 SDK streamFunction 边界固定，剔除 Pi 自动附加的临时工作目录；
 同时透传最大输出 token，保留 SDK 原有认证和流实现，不复制 agent loop。
 session 可选的 `thinking_level`（off/minimal/low/medium/high/xhigh/max）从 `Tasks` 持久化，经
@@ -209,3 +209,18 @@ Write 拥有预留 story、完整初始化包、人物来源版本、授权和�
 固定 OP 只接受一种工具版本和精确 draft 引用，重试不扩写入槽；同一 run 先建作品后写另一正式章被拒绝，下一轮新授权可继续原 session。
 未知 OP 从原 invocation 和不可变工具快照核实，响应丢失、取消、模型失败及重启不抹去已保存业务成果。
 运行时本地确定性 Pi/HTTP 验证覆盖这些边界；应用事务、真实回调身份和生产发布仍由跨项目交付验收。
+
+### 自由会话运行时 v2
+
+`free-session.ts` 验证十工具有序协议、逐 run scope、预览摘要和五种精确业务收据；`Tasks` 保持 phase 幂等、
+完整 scope/refs/OP 身份与两阶段合计预算，公开 execution_usage。Write 拥有原消息意图、draftContext、binding、
+目标 directory/ledger、epoch 和业务 CAS；Mochi 只校验可信输入一致性，不读取业务库或推断授权。
+
+`piExecutor` 按 app/session 复用进程内真实 Pi AgentSession，工具闭包通过当前 run 委托访问已冻结 scope；
+结束后委托失效。resolve 结果不能修改原 run，后端核验后创建独立 execute，其输入作为 Pi custom continuation 保存。
+v2 完整执行历史（含失败/取消）在重启时重建，持久 session ID 不变；Tasks.close 统一清理所有缓存 session/临时目录。
+旧协议保留原历史与生命周期。运行中断不重放，原 OP 核实使用持久具体工具、动作、target 和精确 draft。
+
+正式写最多一个 OP，候选最多八份；角色、初始化和章成果分别持久，不用章收据冒充角色保存。
+严格工具参数/回调边界、两阶段预算和职责分工见 [v2 契约](APP_TOOLS.md#自由会话-protocol-v2)。
+本地真实 Pi/假 provider 验证不等于 Write 多分区事务、真实模型或云身份验收。
