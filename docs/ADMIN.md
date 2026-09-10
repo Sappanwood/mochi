@@ -292,3 +292,15 @@ Write `mochi-write--0000005` 接入后，真实 `deepseek-v4-flash` 的独立草
 云端实际覆盖先建零章、首章关联更新、同 session 草稿续写及旧会话复验。
 先预览再建立、直接建立并保存的路径由 MWT-019 本地真实模型候选验证覆盖，不计作云端通过；
 MOC-004 的执行中断、跨应用隔离、Queue 故障及业务恢复仍按各自验收范围跟踪。
+
+
+## 自由会话 v2 云发布状态
+
+2026-09-10，[运行时发布](https://github.com/Sappanwood/mochi/actions/runs/34490119288) 已上线 `f4bdff8`，
+随后工具配置更新至 revision `mochi-agent--0000011`。实际 allowlist 保留七个 v1 条目并追加七个 v2 条目，
+既有 Write Managed Identity 已读取旧无工具、三工具、七工具会话及成功任务，快照哈希保持一致。
+两次独立维护窗口均完成 auth/data 新备份及恢复点核实，窗口前后认证指纹一致，恢复后各卷 owner 已建立。
+Write [新入口发布](https://github.com/Sappanwood/mochi-write/actions/runs/34492485165) 已成功。现有 openai-codex 订阅的
+gpt-5.6-luna 已完成同 session 角色→故事首章及完整快照→独立角色母版、精确保存、三个原 OP 核实与刷新恢复。
+7 个合成用户任务含一次明确补全：故事候选首轮漏快照，未正式保存，修正后才通过；不能声称首轮全部成功。
+匿名请求本人 API、本人 token 调用服务 callback 均返回 401；本次没有重跑续章或业务故障恢复矩阵。

@@ -26,7 +26,7 @@ unknown/revoked/conflict/committed 状态。取消/核实不改变已保存业�
 
 同进程跨角色/故事 run 使用同一个真实 Pi AgentSession。execute 接续 resolve 时，完整 `pi-v1` 历史包含
 `role:custom,customType:mochi-task-continuation`，并保留原 source_message_id；v2 完整失败历史也进入后续上下文。
-默认无工具/v1 的成功文本历史、wire/hash/幂等和持久读取保持原样。新增 v2 仅本地实现，云发布另行验收。
+默认无工具/v1 的成功文本历史、wire/hash/幂等和持久读取保持原样。v2 运行时及工具登记已于 2026-09-10 发布，消费者业务验收状态见 [管理服务](ADMIN.md)。
 
 ## 范围与认证
 
