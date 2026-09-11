@@ -341,7 +341,7 @@ failed/cancelled/interrupted 仍可带 committed 收据；业务保存成功和�
 新 session 显式提交 `tool_protocol_version:2`，字段与 system prompt、工具快照一起持久固定。
 省略仍是 v1；无工具、三工具、七工具的响应、canonical hash 和记录不增加字段。
 服务端 allowlist 按 `(name,version)` 唯一，可同时登记 v1/v2；单 session 不可混用以下集合之外的工具，
-且必须按此顺序提交十项（description、parameters 仍由应用提供并参与 canonical snapshot hash）：
+原角色/故事集合必须按此顺序提交十项（description、parameters 仍由应用提供并参与 canonical snapshot hash）：
 
 | 顺序 | name/version/effect |
 |---|---|
@@ -355,6 +355,8 @@ failed/cancelled/interrupted 仍可带 committed 收据；业务保存成功和�
 | 8 | save_character/2/write |
 | 9 | initialize_story/2/write |
 | 10 | create_chapter/2/write |
+
+世界观集合沿用 `tool_protocol_version:2`：将第六项替换为 `discover_artifacts/3/read`，第十一项追加 `save_world/2/write`，其余九项及顺序保持。只接受这两套精确集合，不接受缺项、混搭或任意扩展。两套快照/hash 独立且不可变；旧会话不升级。world 运行时已本地实现，新增 allowlist 和消费者业务由对应项目接入，尚未云发布。
 
 schema 只接受严格 object、根 mode oneOf、嵌套 type oneOf、有界 array 和既有基本类型，最大深度 8。嵌套联合用于准确传达资产／候选引用形状，不增加工具权限；旧已保存工具快照保持不可变，新 session 才取得修正后的 schema。
 v2 的 array maxItems 上限扩为 30，以承载角色最多 30 个 genres；v1 创建时仍最多 16。
@@ -371,14 +373,15 @@ type ScopeV2 = {
   conversation_id: string; task_id: string; source_message_id: string; operation_id: string;
   phase: "resolve" | "execute"; refs_digest: string;
   binding_digest?: string; authorization_id?: string;
-  target?: {kind:"character"; asset_id:string} | {kind:"story"; story_id:string};
-  action?: "create_character" | "update_character" | "initialize_story" | "save_first_chapter" | "create_chapter";
+  target?: {kind:"character"|"world"; asset_id:string} | {kind:"story"; story_id:string};
+  action?: "create_world" | "update_world" | "create_character" | "update_character" | "initialize_story" | "save_first_chapter" | "create_chapter";
 };
 ```
 
 ID 是 1–128 UTF-8 bytes；digest 为 `sha256:` 加 64 小写 hex。`binding_digest/authorization_id/target/action`
 四者必须同时存在或同时省略，resolve 必须省略且预算 `max_write_operations:0`。仅执行正式绑定时携带它们。
-角色 action 只配 character target，故事 action 只配 story target，拒绝未知字段与 null。
+角色 action 只配 character target，世界观 action 只配 world target，故事 action 只配 story target，拒绝未知字段与 null。
+world scope 在 run 准入及工具执行时必须匹配原 session 的十一工具快照；服务端 allowlist 存在新工具不使旧会话获得能力。
 `action` 是应用后端已核验的实际绑定动作：用户的 `save_current` 等解释意图必须由 Write 按冻结候选归约，
 不直接把创作模型输出作为该字段。
 
@@ -397,7 +400,7 @@ Mochi 自动将此回合登记为 `customType:mochi-task-continuation` 的 Pi cu
 resolve 不可后绑定。换 key 不允许重做同一 phase，返回 409 task_phase_conflict；原 key 同输入始终返回原 run，
 同 key 异完整 scope、prompt、预算或候选上下文摘要返回 409 idempotency_conflict。
 候选不是正式业务成果：v2 最多八份成功候选，达到上限后不再派发 draft callback；业务拒绝仍消耗工具预算但不占候选名额。事件保留 group_id、ordinal、parent_ref 和
-artifact_kind（character/story_initialization/chapter），支持多个组和版本；正式 commit 仍只允许一个工具及精确 draft 身份。
+artifact_kind（character/world/story_initialization/chapter），支持多个组和版本；正式 commit 仍只允许一个工具及精确 draft 身份。
 
 两阶段模型调用总计最多 8、工具总计最多 20、执行时间总计 300000 ms（不含 queued）。Mochi 持久计数，
 execute 准入自动取调用方预算与总额度减去 resolve 实际消耗后的较小值；resolve 的单 run 更小限制不减少总任务上限。
@@ -416,6 +419,8 @@ commit 仅接受 `{mode:"commit",draft_id,draft_revision:"1",draft_hash}`，拒�
 
 | scope.action | tool/version | 唯一 receipt.kind |
 |---|---|---|
+| create_world | save_world/2 | world_created |
+| update_world | save_world/2 | world_updated |
 | create_character | save_character/2 | character_created |
 | update_character | save_character/2 | character_updated |
 | initialize_story | initialize_story/2 | story_initialized |
@@ -424,10 +429,10 @@ commit 仅接受 `{mode:"commit",draft_id,draft_revision:"1",draft_hash}`，拒�
 
 ReceiptV2 是 `{protocol_version:2,operation_id,status:"committed",conversation_id,task_id,kind,target,
  draft_id,draft_revision,draft_hash,content_hash,revision,assets?,chapter?}`。上述身份、target、动作、工具和精确稿
-全部匹配原 run/invocation。角色禁止 assets/chapter；仅初始化禁止 chapter，首章必须 chapter，初始化必须 assets
+全部匹配原 run/invocation。角色和世界观禁止 assets/chapter；仅初始化禁止 chapter，首章必须 chapter，初始化必须 assets
 （最多八项、ID 不重复、setting/outline 各最多一项），content_hash=draft_hash。
 chapter_created 必须 chapter、禁止 assets，顶层 revision/content_hash 必须等于章的 revision/content_hash。
-角色 content_hash 是 Write 冻结完整 Content 的 hash；Mochi 不将角色成果塞入旧 ChapterReceipt。
+角色和世界观 content_hash 是 Write 冻结完整 Content 的 hash；Mochi 不将母版成果塞入旧 ChapterReceipt。
 
 GET `operations_endpoint/<original_operation_id>` 的 v2 结果为
 `{protocol_version:2,operation_id,status:"unknown"|"revoked"|"conflict"|"committed",receipt?}`，仅 committed 可带收据。

@@ -1,4 +1,4 @@
-import { scopeV2, hash, operationBinding, validateProtocol } from './free-session.ts';
+import { scopeV2, assertScopeTools, hash, operationBinding, validateProtocol } from './free-session.ts';
 import { thinkingLevels, type ThinkingLevel } from './task-types.ts';
 import { randomUUID } from 'node:crypto';
 import { TaskStore } from './task-store.ts';
@@ -105,6 +105,7 @@ export class Tasks {
       if (session.tools?.length) {
         this.appTools.assertSupported(appId, session.tools);
         normalized.scope = session.tool_protocol_version === 2 ? scopeV2(input.scope) : toolScope(input.scope); normalized.budget = toolBudget(input.budget);
+        if (normalized.scope.protocol_version === 2) assertScopeTools(normalized.scope, session.tools);
         if (normalized.scope.protocol_version === 2 && normalized.scope.phase === 'resolve' && normalized.budget.max_write_operations !== 0) throw new TaskError(400, 'invalid_request');
         if ('draft_context_digest' in input) {
           if (normalized.scope.protocol_version !== 2 || normalized.scope.phase !== 'execute' || !hash(input.draft_context_digest)) throw new TaskError(400, 'invalid_request');

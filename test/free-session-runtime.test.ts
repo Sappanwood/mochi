@@ -9,25 +9,26 @@ import { piExecutor } from '../src/executor.ts';
 import { AppTools } from '../src/app-tools.ts';
 import { TaskStore } from '../src/task-store.ts';
 import { Tasks } from '../src/tasks.ts';
-import { tools, scope, receipt, draft, hash, json } from './free-session-fixture.ts';
+import { tools, worldTools, worldScope, scope, receipt, draft, hash, json } from './free-session-fixture.ts';
 import type { CallbackRequest } from '../src/tool-types.ts';
 const call = (id: string, name: string, args: Record<string, unknown>): AssistantMessage['content'] => [{ type: 'toolCall', id, name, arguments: args }];
 const commit = { mode: 'commit', ...draft };
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, world = false) {
+  const selectedTools = world ? worldTools : tools;
   const root = await mkdtemp(join(tmpdir(), 'mochi-free-pi-')); const store = await TaskStore.open(root);
   const credentials = new InMemoryCredentialStore(); await credentials.modify('deepseek', async () => ({ type: 'api_key', key: 'fake' }));
   const pi = await createPi(credentials); const model = pi.models().find(m => m.provider === 'deepseek')!;
   const callbacks: CallbackRequest[] = []; let lost = false; let forged = false; let queries = 0; let candidates = 0;
   let saved: Record<string, unknown> | undefined; let rejectDraft = false;
   const appTools = new AppTools({ write: { endpoint: 'https://write.invalid/tools', operations_endpoint: 'https://write.invalid/operations', audience: 'api://write',
-    tools: tools.map(({ name, version, effect }) => ({ name, version, effect })) } }, { token: async () => 'fake', fetch: async (_, init) => {
-      if (init?.method === 'GET') { queries++; return json({ protocol_version: 2, operation_id: 'op', status: saved ? 'committed' : 'unknown',
+    tools: selectedTools.map(({ name, version, effect }) => ({ name, version, effect })) } }, { token: async () => 'fake', fetch: async (url, init) => {
+      if (init?.method === 'GET') { queries++; return json({ protocol_version: 2, operation_id: decodeURIComponent(String(url).split('/').at(-1)!), status: saved ? 'committed' : 'unknown',
         ...(saved ? { receipt: forged ? { ...saved, draft_id: 'forged' } : saved } : {}) }); }
       const request = JSON.parse(String(init?.body)) as CallbackRequest; callbacks.push(request);
       if (request.arguments.mode === 'commit') {
         saved = { ...receipt(), operation_id: request.scope.operation_id, task_id: request.task_id,
           target: 'target' in request.scope ? request.scope.target : undefined,
-          kind: request.tool.name === 'save_character' ? 'character_created' : request.tool.name === 'initialize_story' ? 'story_initialized' : 'chapter_created',
+          kind: request.tool.name === 'save_world' ? ('action' in request.scope && request.scope.action === 'update_world' ? 'world_updated' : 'world_created') : request.tool.name === 'save_character' ? 'character_created' : request.tool.name === 'initialize_story' ? 'story_initialized' : 'chapter_created',
           ...(request.tool.name === 'initialize_story' ? { assets: [] } : {}),
           ...(request.tool.name === 'create_chapter' ? { chapter: { chapter_id: 'chapter', revision: '1', content_hash: hash } } : {}) };
         if (lost) throw new Error('lost response');
@@ -35,13 +36,13 @@ async function fixture(t: TestContext) {
       }
       if (request.arguments.mode === 'draft' && rejectDraft) { rejectDraft = false; return json({ protocol_version: 2, invocation_id: request.invocation_id, outcome: 'error', error: { code: 'invalid_arguments', retryable: false } }); }
       const data = request.arguments.mode === 'draft' ? { ...draft, draft_id: 'draft-' + ++candidates, group_id: 'group-' + candidates, ordinal: 1, title: 'Candidate',
-        artifact_kind: request.tool.name === 'save_character' ? 'character' : request.tool.name === 'initialize_story' ? 'story_initialization' : 'chapter' } : { content: 'fixed reference' };
+        artifact_kind: request.tool.name === 'save_world' ? 'world' : request.tool.name === 'save_character' ? 'character' : request.tool.name === 'initialize_story' ? 'story_initialization' : 'chapter' } : { content: 'fixed reference' };
       return json({ protocol_version: 2, invocation_id: request.invocation_id, outcome: 'ok', data });
     } });
   const tasks = new Tasks(store, { send: async () => {} }, pi.models, appTools); let sessionsOpened = 0;
   const executor = piExecutor(pi, appTools, async input => { sessionsOpened++; return openConversation(pi, input); });
   t.after(async () => { await tasks.close(); await store.close(); await rm(root, { recursive: true, force: true }); });
-  const session = await tasks.createSession('write', { tool_protocol_version: 2, system_prompt: 'Free conversation.', tools });
+  const session = await tasks.createSession('write', { tool_protocol_version: 2, system_prompt: 'Free conversation.', tools: selectedTools });
   const submit = (s: Record<string, unknown> = scope, extra: Record<string, unknown> = {}) => tasks.submit('write', session.session_id,
     { idempotency_key: `${s.task_id}:${s.phase}:1`, provider: 'deepseek', model: model.id, prompt: 'Original message', scope: s, ...extra });
   let turns: (AssistantMessage['content'] | 'length')[] = []; let count = 0; const contexts: unknown[] = [];
@@ -178,4 +179,35 @@ test('rejected draft attempts consume tool budget but do not consume the eight-c
   const run = await f.submit(); await f.tasks.execute(run.run_id, f.executor);
   assert.equal(f.callbacks.length, 9); assert.equal((await f.tasks.run('write', run.run_id)).artifacts?.length, 8);
   assert.equal((await f.tasks.run('write', run.run_id)).status, 'succeeded');
+});
+
+
+test('world tool draft and exact commit retain one real Pi session through later character work and lost response', async t => {
+  const f = await fixture(t, true);
+  f.respond(call('world-draft', 'save_world', { mode: 'draft', title: 'World', body: 'World' }), call('world-save', 'save_world', commit));
+  const run = await f.submit(worldScope); await f.tasks.execute(run.run_id, f.executor);
+  const result = await f.tasks.run('write', run.run_id);
+  assert.equal(result.status, 'succeeded'); assert.equal(result.artifacts?.[0]?.artifact_kind, 'world');
+  assert.equal(result.operations?.[0]?.receipt && 'kind' in result.operations[0].receipt ? result.operations[0].receipt.kind : undefined, 'world_created');
+  f.lose(); f.respond(call('world-update', 'save_world', commit));
+  const update = await f.submit({ ...worldScope, action: 'update_world', task_id: 'update', operation_id: 'op-update', source_message_id: 'update-message' });
+  await f.tasks.execute(update.run_id, f.executor);
+  assert.equal((await f.tasks.run('write', update.run_id)).operations?.[0]?.status, 'committed');
+  assert.equal(f.queries(), 1);
+  f.respond(call('role-draft', 'save_character', { mode: 'draft', title: 'Role', body: 'Role' }));
+  const role = await f.submit({ ...scope, task_id: 'role', operation_id: 'role-op', source_message_id: 'role-message' });
+  await f.tasks.execute(role.run_id, f.executor);
+  assert.equal((await f.tasks.run('write', role.run_id)).status, 'succeeded'); assert.equal(f.opened(), 1);
+});
+test('world writes obey readonly resolution, unbound preview and wrong-tool rejection', async t => {
+  const f = await fixture(t, true);
+  f.respond(call('world-draft', 'save_world', { mode: 'draft', title: 'World', body: 'World' }));
+  const read = await f.submit(resolveScope, { budget: { max_write_operations: 0 } }); await f.tasks.execute(read.run_id, f.executor);
+  assert.equal((await f.tasks.run('write', read.run_id)).error, 'forbidden_scope'); assert.equal(f.callbacks.length, 0);
+  f.respond(call('world-commit', 'save_world', commit));
+  const preview = await f.submit({ ...resolveScope, phase: 'execute', task_id: 'preview' }); await f.tasks.execute(preview.run_id, f.executor);
+  assert.equal((await f.tasks.run('write', preview.run_id)).error, 'authorization_required');
+  f.respond(call('wrong', 'save_character', commit));
+  const wrong = await f.submit({ ...worldScope, task_id: 'wrong' }); await f.tasks.execute(wrong.run_id, f.executor);
+  assert.equal((await f.tasks.run('write', wrong.run_id)).error, 'forbidden_scope'); assert.equal(f.callbacks.length, 0);
 });

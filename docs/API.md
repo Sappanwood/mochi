@@ -13,9 +13,9 @@ v1 参数 schema 支持有界 array（maxItems 必填且最多 16），完整契
 
 ## v2 自由会话扩展
 
-`POST /v1/sessions` 显式增加 `tool_protocol_version:2` 与固定有序十工具快照；路径版本不变，省略保持旧协议。
+`POST /v1/sessions` 显式增加 `tool_protocol_version:2` 与固定有序的原十工具或世界观十一工具快照；路径版本不变，省略保持旧协议。
 `POST /v1/sessions/:id/runs` 接受严格 ScopeV2 与可选 `draft_context_digest`，完整形状及动作收据表见
-[自由会话契约](APP_TOOLS.md#自由会话-protocol-v2)。refs_digest 和预览摘要不授予写权限；正式 scope 的
+[自由会话契约](APP_TOOLS.md#自由会话-protocol-v2)。世界观集合将 discover_artifacts 升为 3 并追加 save_world/2，旧快照不变；create_world/update_world scope 只允许原 session 已持有新集合，尚未云发布。refs_digest 和预览摘要不授予写权限；正式 scope 的
 binding_digest/authorization_id/target/action 成组必需。resolve 只读且写额度为零，execute 无授权时只允许候选。
 
 每个应用 task 最多两个串行 phase，scope/source/OP/refs 不可替换。同键同输入返回原 run，异输入 409 idempotency_conflict；

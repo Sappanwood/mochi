@@ -97,7 +97,7 @@ function receipt(value: unknown, operationId: string): value is OperationReceipt
 function hash(value: unknown): value is string { return typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value); }
 export function formalCommit(tool: Pick<ToolSnapshot, 'name' | 'version'>, args: Record<string, unknown>): boolean {
   return args.mode === 'commit' && (tool.version === '1' && ['create_chapter', 'initialize_story'].includes(tool.name)
-    || tool.version === '2' && ['save_character', 'initialize_story', 'create_chapter'].includes(tool.name));
+    || tool.version === '2' && ['save_character', 'save_world', 'initialize_story', 'create_chapter'].includes(tool.name));
 }
 function matchesReceipt(value: OperationReceipt, binding: OperationBinding): boolean {
   if ('protocol_version' in value || !formalCommit(binding.tool, binding.arguments) || value.story_id !== binding.story_id) return false;

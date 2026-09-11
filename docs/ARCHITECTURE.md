@@ -212,7 +212,7 @@ Write 拥有预留 story、完整初始化包、人物来源版本、授权和�
 
 ### 自由会话运行时 v2
 
-`free-session.ts` 验证十工具有序协议、逐 run scope、预览摘要和五种精确业务收据；`Tasks` 保持 phase 幂等、
+`free-session.ts` 验证原十工具及世界观十一工具有序集合、逐 run scope、预览摘要和七种精确业务收据；`Tasks` 保持 phase 幂等、
 完整 scope/refs/OP 身份与两阶段合计预算，公开 execution_usage。Write 拥有原消息意图、draftContext、binding、
 目标 directory/ledger、epoch 和业务 CAS；Mochi 只校验可信输入一致性，不读取业务库或推断授权。
 
@@ -221,6 +221,8 @@ Write 拥有预留 story、完整初始化包、人物来源版本、授权和�
 v2 完整执行历史（含失败/取消）在重启时重建，持久 session ID 不变；Tasks.close 统一清理所有缓存 session/临时目录。
 旧协议保留原历史与生命周期。运行中断不重放，原 OP 核实使用持久具体工具、动作、target 和精确 draft。
 
-正式写最多一个 OP，候选最多八份；角色、初始化和章成果分别持久，不用章收据冒充角色保存。
+正式写最多一个 OP，候选最多八份；角色、世界观、初始化和章成果分别持久，不用章收据冒充角色保存。
 严格工具参数/回调边界、两阶段预算和职责分工见 [v2 契约](APP_TOOLS.md#自由会话-protocol-v2)。
 本地真实 Pi/假 provider 验证不等于 Write 多分区事务、真实模型或云身份验收。
+
+世界观增量使用既有 v2 envelope 与精确工具集合辨识能力，run 准入和执行均核对原 session snapshot。旧 session/hash 不更新，world 业务仍由 Write 独立授权；allowlist 只是服务端允许集合。该运行时增量已本地实现，消费者接入与云发布另行验收。

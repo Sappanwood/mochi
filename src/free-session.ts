@@ -5,10 +5,10 @@ export const keys = (v: Record<string, unknown>, allowed: string[]) => Object.ke
 export const text = (v: unknown, max = 128): v is string => typeof v === 'string' && v.length > 0 && Buffer.byteLength(v) <= max;
 export const hash = (v: unknown): v is string => typeof v === 'string' && /^sha256:[a-f0-9]{64}$/.test(v);
 export function target(v: unknown): boolean {
-  return object(v) && (v.kind === 'character' ? keys(v, ['kind', 'asset_id']) && text(v.asset_id)
+  return object(v) && (['character', 'world'].includes(String(v.kind)) ? keys(v, ['kind', 'asset_id']) && text(v.asset_id)
     : v.kind === 'story' && keys(v, ['kind', 'story_id']) && text(v.story_id));
 }
-export const actionKinds = { create_character: 'character_created', update_character: 'character_updated', initialize_story: 'story_initialized',
+export const actionKinds = { create_world: 'world_created', update_world: 'world_updated', create_character: 'character_created', update_character: 'character_updated', initialize_story: 'story_initialized',
   save_first_chapter: 'first_chapter_saved', create_chapter: 'chapter_created' } as const;
 export function scopeV2(v: unknown): ScopeV2 {
   function invalid(): never { throw new TaskError(400, 'invalid_request'); }
@@ -19,7 +19,7 @@ export function scopeV2(v: unknown): ScopeV2 {
   if (fields.some(k => k in v)) {
     if (v.phase !== 'execute' || !hash(v.binding_digest) || !text(v.authorization_id) || !target(v.target)
       || !Object.hasOwn(actionKinds, String(v.action))) invalid();
-    const expected = ['create_character', 'update_character'].includes(String(v.action)) ? 'character' : 'story';
+    const expected = ['create_world', 'update_world'].includes(String(v.action)) ? 'world' : ['create_character', 'update_character'].includes(String(v.action)) ? 'character' : 'story';
     if ((v.target as Record<string, unknown>).kind !== expected) invalid();
   }
   return structuredClone(v) as unknown as ScopeV2;
@@ -29,14 +29,19 @@ const descriptors = [
   ['search_assets', '2', 'read'], ['read_asset', '2', 'read'], ['discover_artifacts', '2', 'read'], ['read_artifact', '2', 'read'],
   ['save_character', '2', 'write'], ['initialize_story', '2', 'write'], ['create_chapter', '2', 'write'],
 ];
-export const isV2Tool = (tool: Pick<ToolSnapshot, 'name' | 'version'>) => descriptors.some(([name, version]) => tool.name === name && tool.version === version);
+const worldDescriptors = descriptors.map(d => d[0] === 'discover_artifacts' ? ['discover_artifacts', '3', 'read'] : d).concat([['save_world', '2', 'write']]);
+const matchesTools = (tools: ToolSnapshot[] | undefined, expected: string[][]) => tools?.length === expected.length
+  && tools.every((t, i) => JSON.stringify([t.name, t.version, t.effect]) === JSON.stringify(expected[i]));
+export function assertScopeTools(scope: ScopeV2, tools: ToolSnapshot[] | undefined) {
+  if (scope.target?.kind === 'world' && !matchesTools(tools, worldDescriptors)) throw new TaskError(400, 'invalid_request');
+}
+export const isV2Tool = (tool: Pick<ToolSnapshot, 'name' | 'version'>) => [...descriptors, ...worldDescriptors].some(([name, version]) => tool.name === name && tool.version === version);
 export function validateProtocol(tools: ToolSnapshot[] | undefined, protocol: unknown) {
   if (protocol === undefined) {
-    if (tools?.some(t => t.version === '2')) throw new TaskError(400, 'invalid_request');
+    if (tools?.some(t => t.version === '2' || t.name === 'discover_artifacts' && t.version === '3')) throw new TaskError(400, 'invalid_request');
     return;
   }
-  if (protocol !== 2 || tools?.length !== descriptors.length
-    || tools.some((t, i) => JSON.stringify([t.name, t.version, t.effect]) !== JSON.stringify(descriptors[i]))) throw new TaskError(400, 'invalid_request');
+  if (protocol !== 2 || !matchesTools(tools, descriptors) && !matchesTools(tools, worldDescriptors)) throw new TaskError(400, 'invalid_request');
 }
 export function operationBinding(tool: OperationBinding['tool'], scope: RunScope, args: Record<string, unknown>): OperationBinding {
   return { tool, arguments: args, ...(scope.protocol_version === 2 ? { scope } : { story_id: scope.story_id }) };
@@ -50,9 +55,9 @@ export function receiptV2(v: unknown, operationId: string, binding: OperationBin
     || !target(v.target) || !sameTarget(v.target, s.target) || !text(v.revision) || !hash(v.content_hash)
     || !text(v.draft_id) || v.draft_revision !== '1' || !hash(v.draft_hash)
     || ['draft_id', 'draft_revision', 'draft_hash'].some(k => v[k] !== binding.arguments[k])) return false;
-  const tool = s.target.kind === 'character' ? 'save_character' : s.action === 'create_chapter' ? 'create_chapter' : 'initialize_story';
+  const tool = s.target.kind === 'world' ? 'save_world' : s.target.kind === 'character' ? 'save_character' : s.action === 'create_chapter' ? 'create_chapter' : 'initialize_story';
   if (binding.tool.name !== tool || binding.tool.version !== '2' || binding.arguments.mode !== 'commit') return false;
-  if (s.target.kind === 'character') return !('assets' in v) && !('chapter' in v);
+  if (s.target.kind !== 'story') return !('assets' in v) && !('chapter' in v);
   const chapter = (c: unknown) => object(c) && keys(c, ['chapter_id', 'revision', 'content_hash']) && text(c.chapter_id) && text(c.revision) && hash(c.content_hash);
   if (s.action === 'create_chapter') return !('assets' in v) && chapter(v.chapter)
     && v.content_hash === (v.chapter as Record<string, unknown>).content_hash && v.revision === (v.chapter as Record<string, unknown>).revision;
@@ -66,10 +71,10 @@ export function receiptV2(v: unknown, operationId: string, binding: OperationBin
   return s.action === 'initialize_story' ? !('chapter' in v) : chapter(v.chapter);
 }
 function sameTarget(a: unknown, b: ScopeV2['target']) {
-  return object(a) && b && a.kind === b.kind && (b.kind === 'character' ? a.asset_id === b.asset_id : a.story_id === b.story_id);
+  return object(a) && b && a.kind === b.kind && (b.kind !== 'story' ? a.asset_id === b.asset_id : a.story_id === b.story_id);
 }
 export function artifactV2(data: Record<string, unknown>, tool: string): boolean {
-  const kind = tool === 'save_character' ? 'character' : tool === 'initialize_story' ? 'story_initialization' : 'chapter';
+  const kind = tool === 'save_world' ? 'world' : tool === 'save_character' ? 'character' : tool === 'initialize_story' ? 'story_initialization' : 'chapter';
   if (!keys(data, ['draft_id', 'draft_revision', 'draft_hash', 'group_id', 'ordinal', 'title', 'artifact_kind', 'parent_ref', 'members'])
     || !text(data.draft_id) || data.draft_revision !== '1' || !hash(data.draft_hash) || !text(data.group_id) || !text(data.title, 512)
     || !Number.isSafeInteger(data.ordinal) || Number(data.ordinal) < 1 || data.artifact_kind !== kind) return false;

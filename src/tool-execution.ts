@@ -1,4 +1,4 @@
-import { operationBinding, hash, keys, text } from './free-session.ts';
+import { operationBinding, assertScopeTools, hash, keys, text } from './free-session.ts';
 import { randomUUID } from 'node:crypto';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { PiMessage, Usage } from './task-types.ts';
@@ -10,6 +10,7 @@ export function toolExecution(input: ExecutionInput, appTools: AppTools, record:
   stop: (error: Error) => void) {
   const { run, session } = input;
   const scope = run.input.scope!; const budget = run.input.budget!;
+  if (scope.protocol_version === 2) assertScopeTools(scope, session.tools);
   let calls = 0; let responses = 0; let toolCalls = 0; let writeIdentity: string | undefined;
   const draftIds = new Set<string>();
   let usage: Usage | null = null; let usageComplete = true;
@@ -28,7 +29,7 @@ export function toolExecution(input: ExecutionInput, appTools: AppTools, record:
       if (commit) {
         if (scope.protocol_version === 2) {
           if (!scope.authorization_id) fail('authorization_required');
-          const expected = scope.target?.kind === 'character' ? 'save_character' : scope.action === 'create_chapter' ? 'create_chapter' : 'initialize_story';
+          const expected = scope.target?.kind === 'world' ? 'save_world' : scope.target?.kind === 'character' ? 'save_character' : scope.action === 'create_chapter' ? 'create_chapter' : 'initialize_story';
           if (tool.name !== expected || tool.version !== '2') fail('forbidden_scope');
           if (!keys(arguments_, ['mode', 'draft_id', 'draft_revision', 'draft_hash']) || !text(arguments_.draft_id)
             || arguments_.draft_revision !== '1' || !hash(arguments_.draft_hash)) fail('invalid_arguments');

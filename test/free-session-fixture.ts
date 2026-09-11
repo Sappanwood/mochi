@@ -16,3 +16,6 @@ export const scope = { protocol_version: 2, conversation_id: 'conversation', tas
 export const receipt = () => ({ protocol_version: 2, operation_id: 'op', status: 'committed', conversation_id: 'conversation', task_id: 'task',
   kind: 'character_created', target: { kind: 'character', asset_id: 'character' }, ...draft, content_hash: hash, revision: '1' });
 export const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
+export const worldTools: ToolSnapshot[] = tools.map(t => t.name === 'discover_artifacts' ? { ...structuredClone(t), version: '3' } : structuredClone(t));
+worldTools.push({ ...structuredClone(tools[7]!), name: 'save_world', description: 'Draft or save a world master.' });
+export const worldScope = { ...scope, action: 'create_world', target: { kind: 'world', asset_id: 'world' } };
