@@ -20,18 +20,19 @@ export type InitializationReceipt = InitializationReceiptBase & (
   | { kind: 'first_chapter_saved'; chapter: { chapter_id: string; revision: string; content_hash: string } }
 );
 export type TargetV2 = { kind: 'character' | 'world'; asset_id: string } | { kind: 'story'; story_id: string };
-export type ActionV2 = 'create_world' | 'update_world' | 'create_character' | 'update_character' | 'initialize_story' | 'save_first_chapter' | 'create_chapter';
+export type ActionV2 = 'create_world' | 'update_world' | 'create_character' | 'update_character' | 'initialize_story' | 'save_first_chapter' | 'create_chapter' | 'revise_story_materials';
+export interface MaterialMember { key: string; kind: 'snapshot' | 'setting' | 'outline'; mode: 'create' | 'update'; asset_id: string; base_revision: string | null; base_version: number }
 export interface ScopeV2 {
   protocol_version: 2; story_id?: never; conversation_id: string; task_id: string; source_message_id: string; operation_id: string;
   phase: 'resolve' | 'execute'; refs_digest: string;
-  target?: TargetV2; authorization_id?: string; binding_digest?: string; action?: ActionV2;
+  target?: TargetV2; authorization_id?: string; binding_digest?: string; action?: ActionV2; material_members?: MaterialMember[];
 }
 export type RunScope = ScopeV1 | ScopeV2;
 export interface ReceiptV2 {
   protocol_version: 2; operation_id: string; status: 'committed'; conversation_id: string; task_id: string;
-  kind: 'world_created' | 'world_updated' | 'character_created' | 'character_updated' | 'story_initialized' | 'first_chapter_saved' | 'chapter_created';
+  kind: 'world_created' | 'world_updated' | 'character_created' | 'character_updated' | 'story_initialized' | 'first_chapter_saved' | 'chapter_created' | 'story_materials_saved';
   target: TargetV2; draft_id: string; draft_revision: string; draft_hash: string; content_hash: string; revision: string;
-  assets?: InitializationReceipt['assets']; chapter?: { chapter_id: string; revision: string; content_hash: string };
+  assets?: (InitializationReceipt['assets'][number] & { mode?: 'create' | 'update' })[]; chapter?: { chapter_id: string; revision: string; content_hash: string };
 }
 export type OperationReceipt = ChapterReceipt | InitializationReceipt | ReceiptV2;
 export interface OperationBinding {
@@ -55,7 +56,7 @@ export interface RunOperation { operation_id: string; status: 'committed' | 'rej
 export type RunArtifact = { draft_id: string; draft_revision: string; draft_hash: string; title: string } & (
   | { artifact_kind?: never; includes_chapter?: never }
   | { artifact_kind: 'story_initialization'; includes_chapter: boolean }
-  | { artifact_kind: 'world' | 'character' | 'story_initialization' | 'chapter'; group_id: string; ordinal: number; parent_ref?: Record<string, unknown>; members?: Record<string, unknown>[] }
+  | { artifact_kind: 'world' | 'character' | 'story_initialization' | 'story_materials' | 'chapter'; group_id: string; ordinal: number; parent_ref?: Record<string, unknown>; members?: Record<string, unknown>[] }
 );
 export interface ToolInvocation {
   invocation_id: string; tool_call_id: string; name: string;

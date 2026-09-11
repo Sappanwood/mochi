@@ -97,7 +97,7 @@ function receipt(value: unknown, operationId: string): value is OperationReceipt
 function hash(value: unknown): value is string { return typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value); }
 export function formalCommit(tool: Pick<ToolSnapshot, 'name' | 'version'>, args: Record<string, unknown>): boolean {
   return args.mode === 'commit' && (tool.version === '1' && ['create_chapter', 'initialize_story'].includes(tool.name)
-    || tool.version === '2' && ['save_character', 'save_world', 'initialize_story', 'create_chapter'].includes(tool.name));
+    || tool.version === '2' && ['save_character', 'save_world', 'initialize_story', 'create_chapter', 'revise_story_materials'].includes(tool.name));
 }
 function matchesReceipt(value: OperationReceipt, binding: OperationBinding): boolean {
   if ('protocol_version' in value || !formalCommit(binding.tool, binding.arguments) || value.story_id !== binding.story_id) return false;
@@ -125,7 +125,7 @@ export class AppTools {
           || (url.protocol !== 'https:' && !(options.allowLoopback && options.token && url.protocol === 'http:' && ['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname)))) invalid('invalid_tool_configuration');
         urls.push(url);
       }
-      if (urls[0]!.origin !== urls[1]!.origin || !Array.isArray(binding.tools) || !binding.tools.length || binding.tools.length > 16) invalid('invalid_tool_configuration');
+      if (urls[0]!.origin !== urls[1]!.origin || !Array.isArray(binding.tools) || !binding.tools.length || binding.tools.length > 32) invalid('invalid_tool_configuration');
       const names = new Set<string>();
       for (const tool of binding.tools) {
         if (!object(tool) || !keys(tool, ['name', 'version', 'effect']) || !text(tool.name, 64)

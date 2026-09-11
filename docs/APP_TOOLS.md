@@ -356,7 +356,7 @@ failed/cancelled/interrupted 仍可带 committed 收据；业务保存成功和�
 | 9 | initialize_story/2/write |
 | 10 | create_chapter/2/write |
 
-世界观集合沿用 `tool_protocol_version:2`：将第六项替换为 `discover_artifacts/3/read`，第十一项追加 `save_world/2/write`，其余九项及顺序保持。只接受这两套精确集合，不接受缺项、混搭或任意扩展。两套快照/hash 独立且不可变；旧会话不升级。world 运行时已本地实现，新增 allowlist 和消费者业务由对应项目接入，尚未云发布。
+世界观集合沿用 `tool_protocol_version:2`：将第六项替换为 `discover_artifacts/3/read`，第十一项追加 `save_world/2/write`，其余九项及顺序保持。同时支持下述 materials 集合；只接受列明的精确集合，不接受缺项、混搭或任意扩展。两套快照/hash 独立且不可变；旧会话不升级。world 运行时已本地实现，新增 allowlist 和消费者业务由对应项目接入，尚未云发布。
 
 schema 只接受严格 object、根 mode oneOf、嵌套 type oneOf、有界 array 和既有基本类型，最大深度 8。嵌套联合用于准确传达资产／候选引用形状，不增加工具权限；旧已保存工具快照保持不可变，新 session 才取得修正后的 schema。
 v2 的 array maxItems 上限扩为 30，以承载角色最多 30 个 genres；v1 创建时仍最多 16。
@@ -450,3 +450,21 @@ v2 的完整历史包含失败/取消的已持久消息及 continuation；重启
 
 本地验证使用真实 Pi 与假 provider，覆盖多目标连续会话、多候选、两阶段预算、撤回后的迟到 phase 拒绝、
 篡改引用/收据和原 OP 恢复；没有调用真实收费模型、改权限或部署。Write 的内容/CAS/目录与多分区授权仍需消费者实现验收。
+
+## 单故事资料工具（本地实现）
+
+materials-v1 消费者新会话继续 protocol_version=2，在 world 十一工具的顺序上将 discover_artifacts 改为 /4、
+read_artifact 改为 /3，最后追加 revise_story_materials/2/write，共十二工具。既有十/十一工具及 v1 快照不升级。
+服务端配置 allowlist 最多 32 个精确 name/version/effect 条目；单 session 仍最多 16 个工具、定义 32 KiB。
+
+revise_story_materials 只允许新集合、story target 和 execute 正式 scope；必须携带 material_members（1–8 项），
+每项 key/kind/mode/asset_id/base_revision/base_version，key 与 ID 唯一，kind=snapshot/setting/outline。
+create 仅 snapshot，base_revision=null、base_version=0；update 需非空基础 revision 和正整数版本，setting/outline 各最多一项。
+其他动作和 resolve 阶段禁止 material_members。预览仍无正式授权，commit 消耗一个 OP。
+
+story_materials_saved 收据必须匹配原 task/OP/target/精确 draft，content_hash=draft_hash，禁止 chapter。
+assets 必须恰好覆盖 scope 成员，各项 asset_id/kind/mode 一致，revision=base_version+1，content_hash 合法。
+遗漏、重复、范围外或错版本拒绝；此校验不声称 runtime 已读取业务 Content，全文与事务仍由 Write 保证。
+原 OP 回调和公开核实使用同一校验；旧初始化收据不添加 mode、不改变其语义。
+候选事件 artifact_kind=story_materials，返回 1–8 个唯一成员目录；完整候选内容由消费者持久化和展示。
+新增能力尚未发布，CCP 精确集合与 Write 业务接入分别验证后才可按授权发布。

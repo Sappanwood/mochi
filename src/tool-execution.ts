@@ -29,7 +29,7 @@ export function toolExecution(input: ExecutionInput, appTools: AppTools, record:
       if (commit) {
         if (scope.protocol_version === 2) {
           if (!scope.authorization_id) fail('authorization_required');
-          const expected = scope.target?.kind === 'world' ? 'save_world' : scope.target?.kind === 'character' ? 'save_character' : scope.action === 'create_chapter' ? 'create_chapter' : 'initialize_story';
+          const expected = scope.action === 'revise_story_materials' ? 'revise_story_materials' : scope.target?.kind === 'world' ? 'save_world' : scope.target?.kind === 'character' ? 'save_character' : scope.action === 'create_chapter' ? 'create_chapter' : 'initialize_story';
           if (tool.name !== expected || tool.version !== '2') fail('forbidden_scope');
           if (!keys(arguments_, ['mode', 'draft_id', 'draft_revision', 'draft_hash']) || !text(arguments_.draft_id)
             || arguments_.draft_revision !== '1' || !hash(arguments_.draft_hash)) fail('invalid_arguments');

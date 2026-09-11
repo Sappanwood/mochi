@@ -133,3 +133,7 @@ data: {"text":"输出片段"}
 
 SSE 断线不会取消任务。服务最多维持 25 秒连接，之后客户端带 cursor 与有效 token 重连，避免无限延用过期认证。
 终态后关闭流；应用应通过 run 查询确认最终状态与完整 result，不能以 EOF 判定成功。
+
+## 单故事资料运行时
+
+新增 v2 单故事资料 scope：revise_story_materials 必须携带 1–8 项 material_members，绑定成员身份、模式和基础版本。仅十二工具新会话允许；story_materials_saved 回调及原 OP 核实逐成员校验，旧 scope/收据保持兼容。详细字段见 [应用工具](APP_TOOLS.md#单故事资料工具本地实现)。
